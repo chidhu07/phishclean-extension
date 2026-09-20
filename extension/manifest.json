@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "PhishClean",
+  "version": "1.2.0",
+  "description": "Privacy-first phishing and token leakage protection. All detection runs locally on your device.",
+
+  "permissions": ["storage", "tabs", "webRequest", "webNavigation", "alarms"],
+  "host_permissions": ["<all_urls>"],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["lib/publicSuffix.js", "riskEngine.js", "secretScanner.js", "contentScript.js", "linkTooltip.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "PhishClean — Protection Status",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["networkHook.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "options_page": "options/options.html",
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

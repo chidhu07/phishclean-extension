@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PhishClean</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <svg width="24" height="27" viewBox="0 0 32 36" fill="none"><path d="M16 1.5L3 7v10.5c0 9 5.5 16.5 13 18.5 7.5-2 13-9.5 13-18.5V7L16 1.5z" fill="#e2e8f0"/><path d="M16 4.5L6 9v8.5c0 7.5 4.5 13.5 10 15.5 5.5-2 10-8 10-15.5V9L16 4.5z" fill="#cbd5e1"/><path d="M11 18.5l3.5 3.5 7-7" stroke="#22c55e" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="logo-text">PhishClean</span>
+      </div>
+      <span class="badge" id="status-badge">--</span>
+    </header>
+
+    <!-- Stats -->
+    <section class="stats">
+      <div class="stat-card">
+        <div class="stat-num" id="blocked-count">0</div>
+        <div class="stat-label">Threats Blocked</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num" id="wl-count">0</div>
+        <div class="stat-label">Trusted</div>
+      </div>
+    </section>
+
+    <!-- License info -->
+    <section class="license-section" id="license-section">
+      <div class="license-row">
+        <span class="license-label">Plan</span>
+        <span class="license-value" id="plan-name">Trial</span>
+      </div>
+      <div class="license-row" id="trial-row" style="display:none">
+        <span class="license-label">Next step</span>
+        <span class="license-value" id="trial-countdown">--</span>
+      </div>
+      <button class="btn btn-upgrade" id="btn-upgrade">Manage Trial / Upgrade</button>
+    </section>
+
+    <!-- PDF Report -->
+    <section class="report-section" id="report-section">
+      <button class="btn btn-report" id="btn-report">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span id="report-btn-text">Download PDF Report</span>
+      </button>
+      <div class="name-prompt hidden" id="name-prompt">
+        <label class="name-label">Enter your name for the report:</label>
+        <div class="name-input-row">
+          <input type="text" id="name-input" class="wl-input" placeholder="Your full name" />
+          <button class="btn-confirm" id="btn-name-save">Save</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Trusted Domains management -->
+    <section class="whitelist-section">
+      <div class="section-header">
+        <span class="section-title">Trusted Domains</span>
+        <button class="btn-icon" id="btn-add-wl" title="Trust current site">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+      <div class="wl-input-row">
+        <input type="text" id="wl-input" class="wl-input" placeholder="Enter domain or URL..." />
+        <button class="btn-add" id="btn-add-manual" title="Add domain">Add</button>
+      </div>
+      <div class="wl-msg" id="wl-msg"></div>
+      <div class="wl-list" id="wl-list">
+        <div class="wl-empty" id="wl-empty">No trusted domains</div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <a href="#" id="btn-options">Settings</a>
+      <a href="#" id="btn-support">Need help?</a>
+      <span class="privacy-note">All detection is local</span>
+    </footer>
+  </div>
+
+  <script src="../lib/jspdf.umd.min.js"></script>
+  <script src="../lib/logoData.js"></script>
+  <script src="pdfReport.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

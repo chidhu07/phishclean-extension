@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Test: Safe Login (No Alerts Expected)</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
+    .info { background: #e8f5e9; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
+    form { background: #f5f5f5; padding: 20px; border-radius: 8px; }
+    input { display: block; margin: 10px 0; padding: 8px; width: 100%; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>Safe Login Page (Control Test)</h1>
+  <div class="info">
+    <strong>Expected:</strong> Extension should detect PASSWORD_FIELD (+20 score) only.
+    Score = 20 which is below threshold (40). Level = "safe". NO alert modal should appear.
+    The form submits to the same domain — no mismatch.
+  </div>
+  <form action="/api/login" method="POST">
+    <label>Email</label>
+    <input type="email" name="email" placeholder="you@example.com">
+    <label>Password</label>
+    <input type="password" name="password" placeholder="Enter password">
+    <button type="submit">Log In</button>
+  </form>
+</body>
+</html>
