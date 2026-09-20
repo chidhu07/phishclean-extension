@@ -61,6 +61,10 @@ Produces `dist/phishclean-{chrome,edge,firefox}-v<version>.zip` from `extension/
 
 The backend (licensing API, payment webhook, account service) is not here; it holds nothing about your browsing because nothing about your browsing is ever sent to it. The website source is not here either.
 
+## Related
+
+The [phishclean-mcp](https://github.com/chidhu07/phishclean-mcp) server (MIT, `npx phishclean-mcp`) exposes PhishClean's URL, email, JWT and secret checks to Claude Desktop, Claude Code and Cursor. It is a separate, API-backed product; the extension itself never uses it.
+
 ## License
 
 Source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). You may read, run, modify and share it for noncommercial purposes. You may not sell it, offer it as a service, or republish it to an extension store. If you want to use it commercially, write to <support@phishclean.com>.
