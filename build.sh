@@ -21,10 +21,12 @@ FILES=(
   background.js
   contentScript.js
   linkTooltip.js
+  breachCheck.js
   riskEngine.js
   secretScanner.js
   networkHook.js
   lib/publicSuffix.js
+  lib/phishFeed.js
   popup/popup.html
   popup/popup.js
   popup/popup.css
@@ -38,6 +40,9 @@ FILES=(
   icons/logo.svg
   lib/jspdf.umd.min.js
   lib/logoData.js
+  report/report.html
+  report/report.js
+  report/report.css
 )
 
 copy_files() {

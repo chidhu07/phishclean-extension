@@ -80,9 +80,14 @@ function renderLicense(license) {
   if (oldManage) oldManage.remove();
 
   if (license?.is_paid) {
-    planEl.textContent = license.plan_type === "annual" ? "Pro (Annual)" : "Pro (Monthly)";
     trialRow.style.display = "none";
     upgradeBtn.classList.add("hidden");
+    /* Lifetime (founder/comp) accounts have no subscription to manage. */
+    if (license.plan_type === "lifetime") {
+      planEl.textContent = "Pro, lifetime";
+      return;
+    }
+    planEl.textContent = license.plan_type === "annual" ? "Pro, annual" : "Pro, monthly";
 
     /* Add "Manage Subscription" link */
     const manageLink = document.createElement("a");
@@ -107,14 +112,14 @@ function renderLicense(license) {
     licenseSection.appendChild(manageLink);
   } else if (license?.trial_active) {
     const remaining = Math.max(0, Number(license?.days_remaining || 0));
-    planEl.textContent = "15-Day Free Trial";
+    planEl.textContent = "Free trial";
     trialRow.style.display = "flex";
-    countdown.textContent = remaining <= 1 ? "1 day remaining" : `${remaining} days remaining`;
+    countdown.textContent = remaining <= 1 ? "All checks on, last day" : `All checks on, ${remaining} days left`;
     upgradeBtn.classList.remove("hidden");
   } else {
     planEl.textContent = "Free";
     trialRow.style.display = "flex";
-    countdown.textContent = "2 of 17 checks — the free two never expire";
+    countdown.textContent = "Core checks only";
     upgradeBtn.classList.remove("hidden");
   }
 }
@@ -122,6 +127,47 @@ function renderLicense(license) {
 /* ── render stats ── */
 function renderStats(stats) {
   $("#blocked-count").textContent = stats?.blocked || 0;
+}
+
+/* Local day key — must match dayKey in background.js. */
+const dayKey = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+async function renderWeek() {
+  const resp = await chrome.runtime.sendMessage({ type: "GET_ACTIVITY" });
+  const days = resp?.days || {};
+  let pages = 0, threats = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const day = days[dayKey(d)];
+    if (day) { pages += day.pages || 0; threats += day.threats || 0; }
+  }
+  const weekText = $("#week-text");
+  weekText.textContent = `${pages.toLocaleString()} ${pages === 1 ? "page" : "pages"} checked`;
+  if (threats) {
+    const blocked = document.createElement("span");
+    blocked.className = "week-blocked";
+    blocked.textContent = `${threats.toLocaleString()} blocked`;
+    weekText.append(" · ", blocked);
+  }
+}
+
+/* The reported-phishing list: how many sites, and how fresh. Silent
+   protection looks like no protection, so say that it is loaded. */
+function ago(ms) {
+  const h = Math.floor((Date.now() - ms) / 3600000);
+  if (h < 1) return "less than an hour ago";
+  if (h < 48) return `${h} ${h === 1 ? "hour" : "hours"} ago`;
+  return `${Math.floor(h / 24)} days ago`;
+}
+
+async function renderFeed() {
+  const meta = (await chrome.storage.local.get("phishclean_feed_meta")).phishclean_feed_meta;
+  if (!meta?.count) return;
+  const line = $("#feed-line");
+  line.textContent = `Blocking ${meta.count.toLocaleString()} reported phishing sites · list updated ${ago(meta.generated_at || meta.fetched_at)}`;
+  line.classList.remove("hidden");
 }
 
 /* ── render report button ── */
@@ -136,11 +182,11 @@ function renderReportButton(license) {
 
   if (license?.is_paid || license?.trial_active) {
     btn.classList.remove("locked");
-    textEl.textContent = "Download PDF Report";
+    textEl.textContent = "Download PDF report";
   } else {
     btn.classList.add("locked");
     textEl.textContent = "";
-    textEl.appendChild(document.createTextNode("Download PDF Report "));
+    textEl.appendChild(document.createTextNode("Download PDF report "));
     const proBadge = document.createElement("span");
     proBadge.className = "report-pro-badge";
     proBadge.textContent = "PRO";
@@ -184,6 +230,8 @@ function renderWhitelist(domains) {
 
 /* ── payment wall ── */
 function showPaymentWall(installId) {
+  /* Labels come from the server by IP country (rupees for India). */
+  const PRICES = _cachedLicense?.pricing || { monthly: "$9/month", annual: "$59/year" };
   const overlay = document.createElement("div");
   overlay.className = "paywall-overlay";
   overlay.innerHTML = `
@@ -192,13 +240,13 @@ function showPaymentWall(installId) {
         <svg width="24" height="27" viewBox="0 0 32 36" fill="none"><path d="M16 1.5L3 7v10.5c0 9 5.5 16.5 13 18.5 7.5-2 13-9.5 13-18.5V7L16 1.5z" fill="#e2e8f0"/><path d="M16 4.5L6 9v8.5c0 7.5 4.5 13.5 10 15.5 5.5-2 10-8 10-15.5V9L16 4.5z" fill="#cbd5e1"/><path d="M11 18.5l3.5 3.5 7-7" stroke="#22c55e" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="logo-text">PhishClean</span>
       </div>
-      <div class="paywall-title">Restore the other 15 checks</div>
-      <p class="paywall-sub">Your trial has ended. Link safety and password-field checks keep running for free. Subscribe to turn the other 15 back on &mdash; token and secret leaks, lookalike domains, HTTPS downgrades.</p>
-      <button class="paywall-btn primary" id="pw-monthly">$9/month</button>
-      <button class="paywall-btn secondary" id="pw-annual">$59/year <span class="paywall-save">— Save 45%</span></button>
+      <div class="paywall-title">Get full protection back</div>
+      <p class="paywall-sub">Your free trial is over. Reported-phishing blocking, link safety and password checks keep running at no cost. Upgrade to catch the phishing pages nobody has reported yet: lookalike domains, fake brand logins, fake virus warnings, leaked passwords and more.</p>
+      <button class="paywall-btn primary" id="pw-monthly">${PRICES.monthly}</button>
+      <button class="paywall-btn secondary" id="pw-annual">${PRICES.annual} <span class="paywall-save">Save 45%</span></button>
       <a href="#" class="paywall-skip" id="pw-skip">Open setup</a>
       <div class="paywall-support">
-        <a href="https://www.phishclean.com/#contact">Contact support</a>
+        <a href="https://www.phishclean.com/#contact" id="pw-support">Contact support</a>
       </div>
     </div>
   `;
@@ -221,6 +269,11 @@ function showPaymentWall(installId) {
   document.getElementById("pw-skip").addEventListener("click", (e) => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
+  });
+  /* A plain link does nothing inside the popup — open it in a tab. */
+  document.getElementById("pw-support").addEventListener("click", (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: "https://www.phishclean.com/#contact" });
   });
 }
 
@@ -246,6 +299,8 @@ async function init() {
 
   const domains = await getWhitelist();
   renderWhitelist(domains);
+  renderWeek().catch(() => {});
+  renderFeed().catch(() => {});
 
   /* Background license refresh to catch recent payments */
   chrome.runtime.sendMessage({ type: "REFRESH_LICENSE_STATE" }).then((freshResp) => {
@@ -336,6 +391,17 @@ $("#btn-options").addEventListener("click", (e) => {
   chrome.runtime.openOptionsPage();
 });
 
+/* Weekly report */
+$("#btn-week").addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "OPEN_REPORT" });
+});
+
+/* Recovery guide */
+$("#btn-recovery").addEventListener("click", (e) => {
+  e.preventDefault();
+  chrome.runtime.sendMessage({ type: "OPEN_RECOVERY", from: "popup" });
+});
+
 /* Support link */
 $("#btn-support").addEventListener("click", (e) => {
   e.preventDefault();
@@ -346,7 +412,7 @@ $("#btn-support").addEventListener("click", (e) => {
 $("#btn-report").addEventListener("click", async () => {
   if (!_cachedLicense?.is_paid && !_cachedLicense?.trial_active) {
     $("#report-btn-text").textContent = "Included with a trial or plan";
-    setTimeout(() => { $("#report-btn-text").textContent = "Download PDF Report"; }, 2000);
+    setTimeout(() => { $("#report-btn-text").textContent = "Download PDF report"; }, 2000);
     return;
   }
   const nameResp = await chrome.runtime.sendMessage({ type: "GET_USER_NAME" });
@@ -395,7 +461,7 @@ async function doGenerateReport(userName) {
   } catch { /* PDF generation failed */
   } finally {
     btn.disabled = false;
-    textEl.textContent = "Download PDF Report";
+    textEl.textContent = "Download PDF report";
   }
 }
 

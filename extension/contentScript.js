@@ -2,6 +2,18 @@
    All detection runs 100% locally. No page data is ever sent to any server.
 */
 (() => {
+  /* Our checkout return page: its buttons need the extension to close the
+     tab or open the extension. The data attribute tells the page's own
+     script to stand back. */
+  if (/^(www\.)?phishclean\.com$/.test(location.hostname) && location.pathname.startsWith("/payment-success")) {
+    document.documentElement.dataset.phishcleanExtension = "1";
+    for (const [id, action] of [["return-btn", "return"], ["close-btn", "close"]]) {
+      document.getElementById(id)?.addEventListener("click", () => {
+        chrome.runtime.sendMessage({ type: "PAYMENT_PAGE_ACTION", action }).catch(() => {});
+      });
+    }
+  }
+
   const engine = window.PhishCleanRiskEngine;
   if (!engine) return;
 
@@ -28,7 +40,7 @@
     state.whitelist = data[WHITELIST_KEY] || [];
     const license = data[LICENSE_KEY];
     /* Detection always runs. The licence decides how much of it: without a
-       trial or a plan we still run the two free signals, which is why
+       trial or a plan we still run the free signals, which is why
        serviceEnabled is no longer tied to proEnabled. A missing licence means
        we have not reached the server yet — that must not disable protection,
        so it degrades to the free tier rather than to nothing. */
@@ -53,6 +65,16 @@
   function detectPasswordFields() {
     const count = document.querySelectorAll('input[type="password"]').length;
     if (count > 0) state.signals.add(engine.SIGNALS.PASSWORD_FIELD);
+  }
+
+  /* FREE: host is on the reported-phishing list. The background matches it
+     against the local copy of the feed; only this page's hostname crosses to
+     the worker, and nothing leaves the device. */
+  async function detectReportedPhishing() {
+    try {
+      const r = await chrome.runtime.sendMessage({ type: "FEED_CHECK", host: host() });
+      if (r?.listed) state.signals.add(engine.SIGNALS.KNOWN_PHISHING);
+    } catch { /* worker unavailable — the other checks still run */ }
   }
 
   /* FREE: form action domain mismatch */
@@ -137,11 +159,22 @@
     collect("a[href]", "href", "anchor");
     collect("img[src]", "src", "image");
     collect("script[src]", "src", "script");
-    collect("link[href]", "href", "stylesheet");
+    /* Only stylesheets: preconnect, icon and canonical links say nothing about
+       what the page pretends to be. */
+    collect('link[rel~="stylesheet"][href]', "href", "stylesheet");
     collect("form[action]", "action", "form_action");
     collect("iframe[src]", "src", "iframe");
 
-    const result = engine.analyzeBacklinkRefs(location.href, refs, document.querySelectorAll('input[type="password"]').length > 0);
+    const hasPassword = document.querySelectorAll('input[type="password"]').length > 0;
+    const result = engine.analyzeBacklinkRefs(location.href, refs, hasPassword);
+    /* Linking to big brands is what ordinary sites do (footers, "Sign in with
+       Google", Google Fonts). It only means impersonation when the page also
+       has something to collect: a password field, or a form or hotlinked logo
+       dressed up as the brand. */
+    const collects = hasPassword ||
+      result.signals.includes("form_submits_to_trusted_domain") ||
+      (result.signals.includes("hotlinked_brand_asset") && document.querySelector("form input:not([type=hidden])"));
+    if (!collects) return;
     if (result.riskScore >= 55 || (result.riskScore >= 40 && result.backlinks.length >= 3)) {
       state.signals.add(engine.SIGNALS.BACKLINK_IMPERSONATION);
     }
@@ -191,6 +224,45 @@
     if (result?.lookalike) state.signals.add(engine.SIGNALS.LOOKALIKE_DOMAIN);
   }
 
+  /* PRO: regional scam script (India) — see detectRegionalScam in riskEngine.
+     The field check runs first because it is cheap and rules out almost every
+     page; the page text is only read when a card/UPI/OTP field exists. */
+  function detectRegionalScam() {
+    if (typeof engine.detectRegionalScam !== "function") return;
+    if (state.signals.has(engine.SIGNALS.REGIONAL_SCAM)) return;
+    /* Only fields that can hold typed data. A checklist item labelled "I
+       entered my UPI or OTP details" (our own help page has one) is advice,
+       not a request for them. */
+    const fields = document.querySelectorAll(
+      "input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=file]):not([type=range]):not([type=color]), select"
+    );
+    let sensitive = false;
+    for (let i = 0; i < fields.length && i < 200 && !sensitive; i++) {
+      const f = fields[i];
+      const label = f.labels?.[0]?.textContent || "";
+      sensitive = engine.isSensitiveFieldText(
+        [f.name, f.id, f.placeholder, f.autocomplete, f.getAttribute("aria-label"), label].join(" ")
+      );
+    }
+    if (!sensitive) return;
+    const text = document.body?.innerText || "";
+    if (engine.detectRegionalScam(host(), text, true)) state.signals.add(engine.SIGNALS.REGIONAL_SCAM);
+  }
+
+  /* PRO: fake virus / tech support scam page — see detectTechSupportScam in
+     riskEngine. textContent is a cheap gate (no layout); the visible text is
+     only read when the page prints a toll-free number at all. */
+  function detectTechSupportScam() {
+    if (typeof engine.detectTechSupportScam !== "function") return;
+    if (state.signals.has(engine.SIGNALS.TECH_SUPPORT_SCAM)) return;
+    const raw = document.body?.textContent || "";
+    if (!engine.hasTollFreeNumber(raw.slice(0, 60000))) return;
+    const text = document.body.innerText || "";
+    if (engine.detectTechSupportScam(text, !!document.fullscreenElement)) {
+      state.signals.add(engine.SIGNALS.TECH_SUPPORT_SCAM);
+    }
+  }
+
   /* PRO: secret leak scanner — hardcoded API keys in page source + same-origin bundles */
   function applySecretResult(result) {
     if (!result || result.skipped || !result.found) return;
@@ -219,7 +291,11 @@
   }
 
   /* PRO: intercept fetch/XHR Authorization headers to third-party domains */
-  const hookNonce = crypto.randomUUID();
+  /* Not crypto.randomUUID(): it only exists in secure contexts, so on a plain
+     http:// page it threw here and took every check on the page down with it
+     — the pages where the HTTP-password checks matter most. */
+  const hookNonce = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+    (b) => b.toString(16).padStart(2, "0")).join("");
 
   function injectNetworkHook() {
     try {
@@ -266,6 +342,19 @@
     const shadow = wrapper.attachShadow({ mode: "closed" });
 
     const levelColor = level === "danger" ? "#ef4444" : level === "warning" ? "#f59e0b" : "#22c55e";
+    const reported = state.signals.has(engine.SIGNALS.KNOWN_PHISHING);
+    const fakeAlert = state.signals.has(engine.SIGNALS.TECH_SUPPORT_SCAM);
+    const title = fakeAlert ? "Fake virus warning" : reported ? "Reported phishing site" : "Potential Risk Detected";
+    const subtitle = fakeAlert
+      ? "Nothing on your computer is infected. This page is pretending to be a security alert, and the number on it goes to scammers. Don't call it."
+      : reported
+        ? "This site has been reported for stealing passwords or payment details."
+        : "PhishClean found signs this page may not be safe.";
+    /* A scam page in fullscreen would hide this warning behind itself. */
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    const licenseNote = reported
+      ? "Caught by the reported-phishing list, which stays free. New phishing pages often go unreported for days; the lookalike-domain and fake-login checks that catch those are paused on this install."
+      : "Caught by the checks that never expire. Seventeen more &mdash; lookalike domains, fake brand logins, fake virus warnings, leaked passwords &mdash; are paused on this install.";
 
     shadow.innerHTML = `
       <style>
@@ -317,6 +406,8 @@
         .btn-upgrade:hover { background: #1d4ed8; }
         .btn-upgrade.hidden { display: none; }
 
+        .help-link { display: block; margin-top: 16px; font-size: 13px; color: #93c5fd; text-decoration: none; }
+        .help-link:hover { text-decoration: underline; }
         .privacy { margin-top: 16px; font-size: 11px; color: #475569; text-align: center; }
         .privacy span { color: #22c55e; }
       </style>
@@ -326,8 +417,8 @@
           <div class="header">
             <svg width="36" height="40" viewBox="0 0 32 36" fill="none" style="flex-shrink:0"><path d="M16 1.5L3 7v10.5c0 9 5.5 16.5 13 18.5 7.5-2 13-9.5 13-18.5V7L16 1.5z" fill="${level === 'danger' ? '#dc2626' : '#f59e0b'}"/><path d="M16 4.5L6 9v8.5c0 7.5 4.5 13.5 10 15.5 5.5-2 10-8 10-15.5V9L16 4.5z" fill="${level === 'danger' ? '#b91c1c' : '#d97706'}"/><path d="M11 18.5l3.5 3.5 7-7" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/></svg>
             <div>
-              <div class="title">Potential Risk Detected</div>
-              <div class="subtitle">PhishClean found signs this page may not be safe.</div>
+              <div class="title">${title}</div>
+              <div class="subtitle">${subtitle}</div>
             </div>
           </div>
 
@@ -339,15 +430,19 @@
           <ul class="reasons" id="reasons"></ul>
 
           <div class="license-note ${state.proEnabled ? "hidden" : ""}" id="license-note">
-            Caught by the two checks that never expire. Fifteen more &mdash; token and secret leaks, lookalike domains, HTTPS downgrades &mdash; are paused on this install.
+            ${licenseNote}
           </div>
 
           <div class="actions">
             <button class="btn btn-back" id="btn-back">Go Back</button>
             <button class="btn btn-ignore" id="btn-ignore">Ignore Once</button>
             <button class="btn btn-whitelist" id="btn-wl">Trust this domain</button>
-            <button class="btn btn-upgrade ${state.proEnabled ? "hidden" : ""}" id="btn-up">Restore the other 15 checks</button>
+            <button class="btn btn-upgrade ${state.proEnabled ? "hidden" : ""}" id="btn-up">Restore the other 17 checks</button>
           </div>
+
+          ${fakeAlert
+            ? `<a class="help-link" id="btn-help" href="https://www.phishclean.com/blog/how-to-remove-fake-virus-popup?utm_source=extension&amp;utm_medium=warning#already-called" target="_blank" rel="noopener">Already called the number or let someone onto your computer? What to do now &rarr;</a>`
+            : `<a class="help-link" id="btn-help" href="https://www.phishclean.com/help/clicked-a-phishing-link?utm_source=extension&amp;utm_medium=warning" target="_blank" rel="noopener">Already typed a password or card details here? What to do now &rarr;</a>`}
 
           <p class="privacy"><span>&#x2713;</span> All analysis runs on your device. No browsing data is sent to any server.</p>
         </div>
@@ -363,7 +458,19 @@
     });
 
     /* Button handlers */
-    shadow.getElementById("btn-back").onclick = () => { wrapper.remove(); history.back(); };
+    /* "Go Back" must always leave the flagged site. history.back() alone does
+       not: a page opened in a new tab has no history, and a back step that is
+       only a #hash or pushState change keeps this same document on screen.
+       If we are still here shortly after going back, let the background send
+       the tab to a new tab page instead. */
+    shadow.getElementById("btn-back").onclick = () => {
+      wrapper.remove();
+      const origin = location.origin;
+      const leave = () => chrome.runtime.sendMessage({ type: "LEAVE_PAGE" }).catch(() => {});
+      if (history.length <= 1) return leave();
+      history.back();
+      setTimeout(() => { if (location.origin === origin) leave(); }, 700);
+    };
     shadow.getElementById("btn-ignore").onclick = () => {
       state.ignoreOnce = true;
       sessionStorage.setItem(`phishclean_ignore_${host()}`, "1");
@@ -397,7 +504,7 @@
     };
 
     const overlay = shadow.querySelector(".overlay");
-    const focusables = Array.from(shadow.querySelectorAll("button:not(.hidden)"));
+    const focusables = Array.from(shadow.querySelectorAll("button:not(.hidden), a[href]"));
     overlay.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -481,7 +588,8 @@
     detectHiddenIframes, detectJwtInUrl, detectSuspiciousQuery,
     detectCredentialInUrl,
     detectVisualAnomalies, detectBacklinkImpersonation, detectTokenStorage,
-    detectHttpPassword, detectHttpFromHttps, detectLookalikeDomain
+    detectHttpPassword, detectHttpFromHttps, detectLookalikeDomain,
+    detectRegionalScam, detectTechSupportScam
   ];
 
   function runSyncDetectors() {
@@ -524,17 +632,35 @@
     } catch { /* observation unavailable */ }
     window.addEventListener("popstate", scheduleRescan);
     window.addEventListener("hashchange", scheduleRescan);
+    /* Scam pages grab fullscreen to hide the address bar and close button. */
+    document.addEventListener("fullscreenchange", scheduleRescan);
   }
 
   /* ── run all detectors ── */
   async function run() {
     try {
-      if (engine.isTrustedDomain(host())) return;
+      if (engine.isTrustedDomain(host())) {
+        /* Trusted platforms skip the heuristics, but some of them host other
+           people's pages (github.io, amazonaws.com), and one of those can be
+           on the reported list. The feed already leaves out the platforms'
+           own domains, so only a specific reported host warns here. */
+        await loadLocalState();
+        if (isWhitelisted()) return;
+        await detectReportedPhishing();
+        await maybeAlert();
+        return;
+      }
 
       await loadLocalState();
       if (isWhitelisted()) return;
 
+      const reported = detectReportedPhishing();
       runSyncDetectors();
+      await reported;
+      /* Counted for the badge and weekly report only after the early returns
+         above, so trusted and whitelisted pages — which are not scanned — are
+         not claimed as checked. */
+      chrome.runtime.sendMessage({ type: "PAGE_SCANNED" }).catch(() => {});
 
       /* Both of these feed pro-only signals: the network hook reports
          third-party Authorization headers, and the scanner reports hardcoded

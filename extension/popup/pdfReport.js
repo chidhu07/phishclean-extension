@@ -97,7 +97,8 @@ function generatePhishCleanReport(data) {
 
   /* Plan badge */
   var planText = license.is_paid
-    ? (license.plan_type === "annual" ? "Pro (Annual)" : "Pro (Monthly)")
+    ? (license.plan_type === "lifetime" ? "Pro (Lifetime)"
+      : license.plan_type === "annual" ? "Pro (Annual)" : "Pro (Monthly)")
     : "Free";
   var badgeX = pageW - margin - 40;
   doc.setFontSize(9);

@@ -20,7 +20,10 @@
     BACKLINK_IMPERSONATION: "BACKLINK_IMPERSONATION",
     HARDCODED_SECRET: "HARDCODED_SECRET",
     PRIVATE_KEY_EXPOSED: "PRIVATE_KEY_EXPOSED",
-    LOOKALIKE_DOMAIN: "LOOKALIKE_DOMAIN"
+    LOOKALIKE_DOMAIN: "LOOKALIKE_DOMAIN",
+    REGIONAL_SCAM: "REGIONAL_SCAM",
+    KNOWN_PHISHING: "KNOWN_PHISHING",
+    TECH_SUPPORT_SCAM: "TECH_SUPPORT_SCAM"
   };
 
   const WEIGHTS = {
@@ -40,13 +43,22 @@
     BACKLINK_IMPERSONATION: 35,
     HARDCODED_SECRET: 30,
     PRIVATE_KEY_EXPOSED: 40,
-    LOOKALIKE_DOMAIN: 35
+    LOOKALIKE_DOMAIN: 35,
+    /* Alerts on its own: it already requires a known scam script, a card/UPI/
+       OTP field and an unofficial domain all at once. */
+    REGIONAL_SCAM: 45,
+    /* A reported phishing host (lib/phishFeed.js). Alerts on its own. */
+    KNOWN_PHISHING: 60,
+    /* Already requires a support number plus two scam-script phrases. */
+    TECH_SUPPORT_SCAM: 60
   };
 
   const THRESHOLD = 40;
 
-  /* Free tier only gets basic signals; Pro unlocks the rest */
-  const FREE_SIGNALS = new Set([SIGNALS.PASSWORD_FIELD, SIGNALS.DOMAIN_MISMATCH]);
+  /* Free tier only gets basic signals; Pro unlocks the rest. The reported-
+     phishing list is free: holding back a warning about a page already known
+     to be phishing would only hurt the user it failed. */
+  const FREE_SIGNALS = new Set([SIGNALS.PASSWORD_FIELD, SIGNALS.DOMAIN_MISMATCH, SIGNALS.KNOWN_PHISHING]);
 
   const REASON_TEXT = {
     PASSWORD_FIELD: "This page contains a password field.",
@@ -65,7 +77,10 @@
     BACKLINK_IMPERSONATION: "This page borrows trust by linking to real brand assets or policy pages from an unrelated domain.",
     HARDCODED_SECRET: "Hardcoded API keys or secrets were found in this page's source code.",
     PRIVATE_KEY_EXPOSED: "A cryptographic private key is exposed in this page — critical security risk.",
-    LOOKALIKE_DOMAIN: "This domain closely imitates a well-known brand — likely a lookalike (typosquatting or homograph) phishing site."
+    LOOKALIKE_DOMAIN: "This domain closely imitates a well-known brand — likely a lookalike (typosquatting or homograph) phishing site.",
+    KNOWN_PHISHING: "This site is on a list of reported phishing sites. It was checked on your device; the address was not sent anywhere.",
+    TECH_SUPPORT_SCAM: "This page imitates a virus or security warning and tells you to call a support number. Real security software never does that; the number goes to scammers.",
+    REGIONAL_SCAM: "This page follows a known scam script (fake traffic e-challan, KYC update, electricity disconnection, held parcel, tax refund or reward points) and asks for card, UPI or OTP details on a site that is not the real bank or government service."
   };
 
   /* JWT pattern: three base64url segments separated by dots */
@@ -120,6 +135,12 @@
     "Bank of America": ["bankofamerica.com", "bac.com"]
   };
 
+  const INFRA_HOSTS = [
+    "fonts.googleapis.com", "fonts.gstatic.com", "ajax.googleapis.com",
+    "www.gstatic.com", "gstatic.com", "storage.googleapis.com",
+    "raw.githubusercontent.com", "avatars.githubusercontent.com"
+  ];
+
   const DOMAIN_TO_BRAND = [];
   Object.entries(BRAND_DOMAINS).forEach(([brand, domains]) => {
     domains.forEach((domain) => DOMAIN_TO_BRAND.push([domain, brand]));
@@ -154,6 +175,41 @@
       .forEach((b) => set.add(b));
     return set;
   })();
+
+  /* Indian banks, payment apps and government services that scam pages
+     impersonate. Matched more strictly than BRAND_SLDS: only as a whole
+     hyphen/dot-separated token (sbi-kyc-update.com, hdfcbank.verify-now.xyz),
+     never as a prefix, because the real brands own many prefixed domains
+     (sbicard.com, kotaksecurities.com, paytmmall.com). Typosquats are only
+     checked for names of 8+ letters — short ones collide with real words
+     (kotak/kodak, phonepe/phoneme). */
+  const REGIONAL_BRAND_SLDS = [
+    "sbi", "onlinesbi", "yonosbi", "hdfc", "hdfcbank", "hdfc-bank", "icici", "icicibank",
+    "icici-bank", "axisbank", "axis-bank", "kotak", "india-post",
+    "paytm", "phonepe", "bhim", "npci", "indiapost", "parivahan", "echallan",
+    "incometax", "irctc", "uidai", "aadhaar", "flipkart"
+  ];
+
+  /* Registries only real Indian government bodies and banks can register in
+     (gov.in/nic.in via NIC, bank.in via IDRBT for RBI-regulated banks, and
+     SBI's own .sbi TLD), plus official sites the regional checks would
+     otherwise match. */
+  const INDIA_OFFICIAL_SUFFIXES = ["gov.in", "nic.in", "bank.in", "sbi"];
+  const INDIA_OFFICIAL_DOMAINS = [
+    "sbicard.com", "sbilife.co.in", "sbimf.com", "sbigeneral.in", "hdfc.com", "hdfclife.com",
+    "hdfcergo.com", "icicilombard.com", "iciciprulife.com", "kotak811.com", "irctc.co.in",
+    "flipkart.com", "amazon.in", "mobikwik.com", "freecharge.in", "cred.club", "airtel.in",
+    "jio.com", "delhivery.com", "bluedart.com", "dtdc.in", "dtdc.com", "ecomexpress.in",
+    "xpressbees.com", "shiprocket.in", "tatapower.com", "adanielectricity.com", "bescom.co.in",
+    "bsesdelhi.com", "tatapower-ddl.com", "torrentpower.com", "cesc.co.in", "mahadiscom.in",
+    "kseb.in", "fastag.ihmcl.com", "ihmcl.co.in"
+  ];
+
+  function isIndianOfficialHost(host) {
+    const h = normalizeHost(host);
+    const match = (d) => h === d || h.endsWith("." + d);
+    return INDIA_OFFICIAL_SUFFIXES.some(match) || INDIA_OFFICIAL_DOMAINS.some(match) || isTrustedDomain(h);
+  }
 
   /* Bounded Levenshtein — stops early once distance exceeds `max`. */
   function levenshtein(a, b, max = 2) {
@@ -222,7 +278,115 @@
         }
       }
     }
+
+    if (!isIndianOfficialHost(norm)) {
+      /* Whole host, not just the SLD: hdfcbank.secure-verify.xyz puts the
+         brand in a subdomain of a domain the attacker owns. */
+      const tokens = `-${norm.replace(/[^a-z0-9]/g, "-")}-`;
+      for (const brand of REGIONAL_BRAND_SLDS) {
+        if (tokens.includes(`-${brand}-`)) {
+          return { lookalike: true, brand, kind: "brand-embedded" };
+        }
+        if (brand.length >= 8 && sld !== brand &&
+            Math.abs(sld.length - brand.length) <= 1 && levenshtein(sld, brand, 1) <= 1) {
+          return { lookalike: true, brand, kind: "typosquat" };
+        }
+      }
+    }
     return null;
+  }
+
+  /* ── Regional scam scripts (India) ──
+     The recurring SMS/WhatsApp scams all land on a page that retells a short
+     story and then asks for card, UPI or OTP details. Matching the story alone
+     would flag news articles about the scam; matching payment fields alone
+     would flag every checkout. Together, on a domain that is not the real
+     bank or government service, they are the scam. Patterns cover English and
+     Hindi, which is what these pages are written in. */
+  const REGIONAL_SCAM_LURES = [
+    { kind: "e-challan", re: /\be-?challan\b|traffic (?:fine|challan|violation)|pending challan|ई-?चालान|चालान/ },
+    { kind: "kyc", re: /\b(?:update|complete|re-?verify|pending|expired?)\b[^.]{0,40}\bkyc\b|\bkyc\b[^.]{0,40}\b(?:update|pending|expire[sd]?|blocked|suspended|deactivat)|केवाईसी/ },
+    { kind: "electricity", re: /electricity (?:bill|connection|power)[^.]{0,80}(?:disconnect|cut off|suspend)|power (?:supply )?will be (?:disconnected|cut)|बिजली[^।]{0,60}(?:कट|काट|बंद)/ },
+    { kind: "parcel", re: /\bindia ?post\b|(?:parcel|package|shipment|consignment)[^.]{0,60}(?:on hold|is held|been held|could not be delivered|undeliver|address (?:is )?incomplete|redeliver)/ },
+    { kind: "tax-refund", re: /income ?tax refund|tax refund of (?:rs\.?|inr|₹)|आयकर रिफंड/ },
+    { kind: "fastag", re: /fastag[^.]{0,40}(?:kyc|blocked|deactivat|expir|blacklist)/ }
+  ];
+  /* Reward-points pages only count when they name a bank — legitimate
+     retailers run points promotions next to card forms all the time. */
+  const REWARD_POINTS_RE = /(?:reward|credit card) points?[^.]{0,60}(?:expir|redeem)/;
+  const INDIAN_BANK_RE = /\b(?:sbi|yono|hdfc|icici|axis|kotak|pnb|punjab national|bank of baroda|canara|union bank|indusind)\b/;
+
+  /* Form fields that only a payment or account-takeover page needs. Tested
+     against each field's name, id, placeholder, autocomplete and label. */
+  /* "(?:^|[^a-z])" rather than \b so upi_id and otpInput match (underscore
+     and camelCase defeat \b) while groupid and hotpot do not. */
+  const SENSITIVE_FIELD_RE = /card[ _-]?(?:no|num|number)|cc-?(?:number|csc|exp)|cvv|cvc|expiry|valid (?:thru|till)|(?:^|[^a-z])upi|(?:^|[^a-z])m-?pin|atm ?pin|(?:^|[^a-z])otp|one.time.pass|aadhaa?r|(?:^|[^a-z])pan[ _-]?(?:no|num|number|card)|net ?banking|ifsc/;
+
+  /**
+   * @param {string}  host               — page hostname
+   * @param {string}  text               — visible page text (any case)
+   * @param {boolean} hasSensitiveFields — page asks for card/UPI/OTP-type data
+   * @returns {{ kind: string } | null}
+   */
+  function detectRegionalScam(host, text, hasSensitiveFields) {
+    if (!hasSensitiveFields || isIndianOfficialHost(host)) return null;
+    const t = (text || "").toLowerCase().slice(0, 30000);
+    for (const { kind, re } of REGIONAL_SCAM_LURES) {
+      if (re.test(t)) return { kind };
+    }
+    if (REWARD_POINTS_RE.test(t) && INDIAN_BANK_RE.test(t)) return { kind: "reward-points" };
+    return null;
+  }
+
+  /* Fake virus / tech support scam pages: a fake security alert with a number
+     to call. It takes a toll-free number AND two distinct scam phrases, or one
+     phrase while the page holds the screen in fullscreen. An article about
+     these scams quotes a phrase or two but rarely prints a live support
+     number beside them; a scam page always does, because the call is the
+     whole point. Numbers: US/Canada 8xx, UK 0800/0808, AU and IN 1800. */
+  const TOLL_FREE_RE = /(?:\+?1[\s.-]?)?\(?8(?:00|33|44|55|66|77|88)\)?[\s.-]?\d{3}[\s.-]?\d{4}\b|\b080[08][\s-]?\d{3}[\s-]?\d{3,4}\b|\b1[\s-]?800[\s-]?\d{3}[\s-]?\d{3,4}\b/;
+  const TECH_SCAM_CUES = [
+    /\b(?:your|this)\s+(?:computer|pc|device|system|windows|mac|laptop|browser)\s+(?:has been|is|was|have been)\s+(?:blocked|locked|infected|compromised|disabled|hacked|suspended)/,
+    /\b(?:do not|don.?t)\s+(?:close|restart|shut ?down|turn off|ignore|reboot)\s+(?:this|your)\s+(?:page|window|computer|pc|browser|device|tab)/,
+    /\b(?:call|contact)\s+(?:microsoft|windows|apple|mac|technical|tech|geek squad|norton|mcafee)\s*(?:support|help|technicians?|helpline|engineers?)/,
+    /\b(?:trojan|spyware|zeus|pornographic|adware)\s+(?:virus|spyware|alert|detected|infection|malware)/,
+    /\berror\s*(?:code)?\s*[#:]?\s*0x[0-9a-f]{4,}/,
+    /\b(?:windows|microsoft)\s+(?:defender|security|firewall)\s+(?:alert|warning|center|notification)/,
+    /\b(?:your|the)\s+(?:personal|banking|credit card|login|financial)\s+(?:information|details|data|credentials)\s+(?:is|are|may be|has been|have been|will be)\s+(?:at risk|stolen|compromised|exposed|deleted)/,
+    /\bfor\s+(?:security|safety)\s+reasons?,?\s+(?:your|this)\s+(?:computer|pc|device|access)\s+(?:has been|is)\s+(?:blocked|locked|suspended)/
+  ];
+
+  function hasTollFreeNumber(text) {
+    return TOLL_FREE_RE.test(text || "");
+  }
+
+  /* A phrase in quotation marks is someone describing the scam, not the scam. */
+  const QUOTE_BEFORE_RE = /["“‘'«]\s*$/;
+  function countsAsCue(t, re) {
+    for (const m of t.matchAll(new RegExp(re.source, "g"))) {
+      if (!QUOTE_BEFORE_RE.test(t.slice(Math.max(0, m.index - 3), m.index))) return true;
+    }
+    return false;
+  }
+
+  /* A scam page is one alert box; an article about scams is long. */
+  const SCAM_PAGE_MAX_CHARS = 6000;
+
+  /**
+   * @param {string} text  visible page text
+   * @param {boolean} fullscreen  the page currently holds fullscreen
+   */
+  function detectTechSupportScam(text, fullscreen) {
+    const t = (text || "").toLowerCase();
+    if (!fullscreen && t.length > SCAM_PAGE_MAX_CHARS) return false;
+    if (!TOLL_FREE_RE.test(t)) return false;
+    let cues = 0;
+    for (const re of TECH_SCAM_CUES) if (countsAsCue(t, re)) cues++;
+    return cues >= 2 || (cues >= 1 && !!fullscreen);
+  }
+
+  function isSensitiveFieldText(value) {
+    return SENSITIVE_FIELD_RE.test((value || "").toLowerCase());
   }
 
   function backlinkSignalFor(type, href) {
@@ -250,6 +414,8 @@
       const targetHost = normalizeHost(hostname(ref.url));
       if (!targetHost || registrable(targetHost) === registrable(pageHost)) continue;
 
+      /* Shared web infrastructure, not brand identity: half the web loads it. */
+      if (INFRA_HOSTS.includes(targetHost)) continue;
       const brand = matchTrustedBrand(targetHost);
       if (!brand) continue;
 
@@ -364,6 +530,9 @@
     "notion.so",
     "spotify.com",
 
+    /* Our own site: its help pages quote scam scripts on purpose */
+    "phishclean.com",
+
     /* Payment & checkout */
     "paypal.com",
     "stripe.com",
@@ -424,7 +593,9 @@
     hasSuspiciousQuery, hasCredentialInQuery, scoreSignals, isLocalhost,
     isTrustedDomain, TRUSTED_DOMAINS,
     BRAND_DOMAINS, matchTrustedBrand, analyzeBacklinkRefs,
-    detectLookalikeDomain, levenshtein, BRAND_SLDS
+    detectLookalikeDomain, levenshtein, BRAND_SLDS,
+    detectRegionalScam, isSensitiveFieldText, isIndianOfficialHost,
+    hasTollFreeNumber, detectTechSupportScam
   };
 })();
 

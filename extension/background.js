@@ -1,12 +1,18 @@
 /* PhishClean service worker (background.js)
    Privacy: ONLY install_id + version are sent to the backend for license checks.
    No URLs, DOM, tokens, or browsing history ever leave the device.
+   The breach checks (see breachCheck.js) make two more kinds of request, both
+   to Have I Been Pwned and neither carrying anything about the user: the full
+   public breach list, and a 5-character SHA-1 prefix for the password range
+   lookup. The reported-phishing feed (lib/phishFeed.js) is one more download,
+   from phishclean.com, of the same file for everyone; pages are matched
+   against it here.
 */
 /* Load shared public-suffix logic. In Chrome (service_worker) this is a
    single-file worker, so importScripts is required. In Firefox the file is
    listed alongside this one in the manifest's background.scripts, so the
    import throws harmlessly (PhishCleanPSL is already defined). */
-try { importScripts("lib/publicSuffix.js"); } catch { /* already loaded (Firefox) */ }
+try { importScripts("lib/publicSuffix.js", "lib/phishFeed.js"); } catch { /* already loaded (Firefox) */ }
 
 const API_BASE = "https://www.phishclean.com/api";
 const LICENSE_KEY = "phishclean_license";
@@ -18,9 +24,22 @@ const USER_NAME_KEY = "phishclean_user_name";
 const AUTH_KEY = "phishclean_auth";
 const ACCOUNT_PROMPT_KEY = "phishclean_account_prompted";
 const TRIAL_ENDED_PROMPT_KEY = "phishclean_trial_ended_prompted";
+const ACTIVITY_KEY = "phishclean_activity";
 const THREAT_LOG_MAX = 200;
+const ACTIVITY_DAYS_KEPT = 56;
 const ACCOUNT_PROMPT_ALARM = "account-prompt";
 const ACCOUNT_PROMPT_DELAY_DAYS = 3;
+const WEEKLY_REPORT_ALARM = "weekly-report";
+const WEEKLY_REPORT_NOTIFICATION = "weekly-report";
+const WEEK_MINUTES = 7 * 24 * 60;
+const RECOVERY_URL = "https://www.phishclean.com/help/clicked-a-phishing-link";
+const BREACHES_KEY = "phishclean_breaches";
+const BREACHES_URL = "https://haveibeenpwned.com/api/v3/breaches";
+const BREACHES_ALARM = "breach-list";
+const BREACHES_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+const PWNED_RANGE_URL = "https://api.pwnedpasswords.com/range/";
+const PWNED_RANGE_CACHE_MAX = 50;
+const FEED_ALARM = "phish-feed";
 
 /* Service worker initialized */
 
@@ -94,14 +113,178 @@ async function appendThreatLog(threat) {
   return log;
 }
 
-/* ── badge management ── */
-function updateBadge(license) {
-  if ((license?.needs_account || license?.needs_payment) && license?.last_checked_at) {
-    chrome.action.setBadgeText({ text: "!" });
-    chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
-  } else {
-    chrome.action.setBadgeText({ text: "" });
+/* ── daily activity (local-only) ──
+   { "YYYY-MM-DD": { pages, threats } } for the last ACTIVITY_DAYS_KEPT days.
+   Counts only — no URLs or domains — so it can feed the toolbar badge and the
+   weekly report without adding anything sensitive to storage. Days are the
+   user's local calendar days so "today" rolls over at their midnight. */
+const dayKey = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/* Every tab reports its scans here, so writes are serialised — a plain
+   read-modify-write would drop counts when two pages finish together. */
+let activityQueue = Promise.resolve();
+function recordActivity(field) {
+  activityQueue = activityQueue.then(async () => {
+    const data = await getLocal([ACTIVITY_KEY]);
+    const days = data[ACTIVITY_KEY] || {};
+    const key = dayKey();
+    const today = days[key] || { pages: 0, threats: 0 };
+    today[field] = (today[field] || 0) + 1;
+    days[key] = today;
+    const keys = Object.keys(days).sort();
+    while (keys.length > ACTIVITY_DAYS_KEPT) delete days[keys.shift()];
+    await setLocal({ [ACTIVITY_KEY]: days });
+  }).catch(() => { /* storage unavailable — the badge just stays stale */ });
+  return activityQueue;
+}
+
+/* Totals for the 7 local days ending today. */
+async function weekSummary() {
+  const data = await getLocal([ACTIVITY_KEY]);
+  const days = data[ACTIVITY_KEY] || {};
+  let pages = 0, threats = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const day = days[dayKey(d)];
+    if (day) { pages += day.pages || 0; threats += day.threats || 0; }
   }
+  return { pages, threats };
+}
+
+/* ── badge management ──
+   The "!" upgrade prompt wins when setup or payment is pending. Otherwise the
+   badge shows how many pages were checked today — the protection is silent by
+   design, and without a number on the icon it looks like it is doing nothing.
+   Red on a day something was blocked, green otherwise. */
+const badgeNumber = (n) => (n > 999 ? `${Math.floor(n / 1000)}k` : n > 0 ? String(n) : "");
+
+async function updateBadge(license) {
+  try {
+    if (license === undefined) license = (await getLocal([LICENSE_KEY]))[LICENSE_KEY];
+    if ((license?.needs_account || license?.needs_payment) && license?.last_checked_at) {
+      chrome.action.setBadgeText({ text: "!" });
+      chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
+      chrome.action.setTitle({ title: "PhishClean — the trial has ended; 3 of 20 checks are running" });
+      return;
+    }
+    const days = (await getLocal([ACTIVITY_KEY]))[ACTIVITY_KEY] || {};
+    const today = days[dayKey()] || { pages: 0, threats: 0 };
+    chrome.action.setBadgeText({ text: badgeNumber(today.pages || 0) });
+    chrome.action.setBadgeBackgroundColor({ color: today.threats ? "#dc2626" : "#16a34a" });
+    const pages = today.pages || 0, threats = today.threats || 0;
+    chrome.action.setTitle({
+      title: `PhishClean — ${pages} ${pages === 1 ? "page" : "pages"} checked today, ` +
+             `${threats} ${threats === 1 ? "threat" : "threats"} blocked`
+    });
+  } catch { /* action API unavailable in this context */ }
+}
+
+/* ── weekly report ──
+   One notification a week, and only when there is something to report. It
+   opens report/report.html, which is built from the same local counts. */
+async function ensureWeeklyReportAlarm() {
+  const existing = await chrome.alarms.get(WEEKLY_REPORT_ALARM);
+  if (existing) return;
+  chrome.alarms.create(WEEKLY_REPORT_ALARM, {
+    when: Date.now() + WEEK_MINUTES * 60 * 1000,
+    periodInMinutes: WEEK_MINUTES
+  });
+}
+
+async function sendWeeklyReport() {
+  if (!chrome.notifications?.create) return;
+  const { pages, threats } = await weekSummary();
+  if (!pages) return; /* an empty report is noise — the browser was barely used */
+  const title = threats
+    ? `PhishClean blocked ${threats} ${threats === 1 ? "threat" : "threats"} this week`
+    : "Your week with PhishClean";
+  const message = `${pages.toLocaleString()} ${pages === 1 ? "page" : "pages"} checked` +
+    (threats ? `, ${threats} blocked.` : ", nothing dangerous found.") +
+    " Click to see your weekly safety report.";
+  chrome.notifications.create(WEEKLY_REPORT_NOTIFICATION, {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+    title,
+    message
+  });
+}
+
+const openReport = () => chrome.tabs.create({ url: chrome.runtime.getURL("report/report.html") });
+
+if (chrome.notifications?.onClicked) {
+  chrome.notifications.onClicked.addListener((id) => {
+    if (id !== WEEKLY_REPORT_NOTIFICATION) return;
+    openReport();
+    chrome.notifications.clear(id);
+  });
+}
+
+/* ── Have I Been Pwned: breached-site list ──
+   The whole public list (~1 MB, ~900 domains) is downloaded and matched
+   locally, so the site the user is on is never sent anywhere. It changes by a
+   handful of entries a week; every three days is plenty. Only verified
+   breaches of a real site are kept — spam lists, malware and stealer-log dumps
+   are not a breach of the site they name. Where a domain has had more than
+   one breach, the most recent one is kept. */
+let breachRefresh = null;
+function refreshBreaches() {
+  if (breachRefresh) return breachRefresh;
+  breachRefresh = (async () => {
+    const cached = (await getLocal([BREACHES_KEY]))[BREACHES_KEY];
+    if (cached && Date.now() - cached.fetched_at < BREACHES_MAX_AGE_MS) return cached;
+    const r = await fetch(BREACHES_URL);
+    if (!r.ok) throw new Error(`breach list ${r.status}`);
+    const domains = {};
+    for (const b of await r.json()) {
+      if (!b.Domain || !b.IsVerified || b.IsFabricated || b.IsSpamList ||
+          b.IsMalware || b.IsStealerLog || b.IsRetired) continue;
+      const domain = b.Domain.toLowerCase();
+      if (domains[domain] && domains[domain].date >= b.BreachDate) continue;
+      domains[domain] = { title: b.Title, date: b.BreachDate, count: b.PwnCount, data: b.DataClasses || [] };
+    }
+    const next = { fetched_at: Date.now(), domains };
+    await setLocal({ [BREACHES_KEY]: next });
+    return next;
+  })().catch(async () => {
+    /* Offline or rate-limited — keep serving the last good copy. */
+    return (await getLocal([BREACHES_KEY]))[BREACHES_KEY] || null;
+  }).finally(() => { breachRefresh = null; });
+  return breachRefresh;
+}
+
+async function breachForDomain(domain) {
+  const list = await refreshBreaches();
+  return list?.domains?.[String(domain || "").toLowerCase()] || null;
+}
+
+/* ── Have I Been Pwned: Pwned Passwords range lookup ──
+   Receives only the first 5 hex characters of a SHA-1 hash; the content
+   script does the hashing and the matching, so the password never reaches
+   this worker. Add-Padding makes every response a similar size so the prefix
+   cannot be inferred from traffic volume. */
+const pwnedRangeCache = new Map();
+async function pwnedRange(prefix) {
+  if (!/^[0-9A-F]{5}$/.test(prefix || "")) throw new Error("bad prefix");
+  if (pwnedRangeCache.has(prefix)) return pwnedRangeCache.get(prefix);
+  const r = await fetch(PWNED_RANGE_URL + prefix, { headers: { "Add-Padding": "true" } });
+  if (!r.ok) throw new Error(`range ${r.status}`);
+  const body = await r.text();
+  pwnedRangeCache.set(prefix, body);
+  if (pwnedRangeCache.size > PWNED_RANGE_CACHE_MAX) {
+    pwnedRangeCache.delete(pwnedRangeCache.keys().next().value);
+  }
+  return body;
+}
+
+/* Price labels for the popup and settings. The server picks them from the
+   country of the IP the licence check came from (rupees for India), the same
+   decision /billing makes, so the price shown is the price charged. */
+function priceLabels(pricing) {
+  const monthly = pricing?.monthly?.label;
+  const annual = pricing?.annual?.label;
+  return monthly && annual ? { monthly, annual } : null;
 }
 
 /* ── API calls (license only — no user data) ── */
@@ -133,6 +316,7 @@ async function registerInstall() {
       is_authenticated: !!data.is_authenticated,
       protection_level: data.protection_level || "free",
       days_remaining: data.days_remaining || 0,
+      pricing: priceLabels(data.pricing),
       last_checked_at: nowIso()
     };
     await setLocal({ [LICENSE_KEY]: license });
@@ -228,6 +412,7 @@ async function refreshStatus() {
       is_authenticated: !!data.is_authenticated,
       protection_level: data.protection_level || "free",
       days_remaining: data.days_remaining || 0,
+      pricing: priceLabels(data.pricing),
       last_checked_at: nowIso()
     };
     await setLocal({ [LICENSE_KEY]: license });
@@ -318,10 +503,25 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
   /* Set up periodic license check every 6 hours */
   chrome.alarms.create("license-check", { periodInMinutes: 360 });
+  chrome.alarms.create(BREACHES_ALARM, { periodInMinutes: 24 * 60 });
+  refreshBreaches();
+  chrome.alarms.create(FEED_ALARM, { periodInMinutes: 12 * 60 });
+  globalThis.PhishCleanFeed?.refresh();
+  /* Installs and updates both land here, so existing users get the weekly
+     report a week after updating rather than never. */
+  await ensureWeeklyReportAlarm();
 });
+
+/* Store installs update themselves, but the browser can hold a downloaded
+   update until it restarts. Apply it as soon as it arrives so fixes (and
+   payment-flow changes) reach users the same day. No update_url: the stores
+   own updates, and Chrome rejects a self-hosted one for store items. */
+chrome.runtime.onUpdateAvailable.addListener(() => chrome.runtime.reload());
 
 chrome.runtime.onStartup.addListener(async () => {
   await setUninstallPing();
+  await ensureWeeklyReportAlarm();
+  globalThis.PhishCleanFeed?.refresh();
   const license = await refreshStatus();
   updateBadge(license);
 });
@@ -330,7 +530,52 @@ chrome.runtime.onStartup.addListener(async () => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "license-check") refreshStatus();
   if (alarm.name === ACCOUNT_PROMPT_ALARM) maybePromptForAccount("day-3");
+  if (alarm.name === WEEKLY_REPORT_ALARM) sendWeeklyReport();
+  if (alarm.name === BREACHES_ALARM) refreshBreaches();
+  if (alarm.name === FEED_ALARM) globalThis.PhishCleanFeed?.refresh();
 });
+
+/* ── checkout return: pick the payment up now, not at the next 6-hour check ──
+   Dodo redirects to /payment-success once the buyer pays, but the webhook
+   that marks the install paid can land a few seconds later, so keep checking
+   for about a minute until it shows up. */
+const PAYMENT_SUCCESS_URL = /^https:\/\/(www\.)?phishclean\.com\/payment-success/;
+let paymentRefreshRunning = false;
+
+async function refreshAfterPayment() {
+  if (paymentRefreshRunning) return;
+  paymentRefreshRunning = true;
+  try {
+    for (const waitMs of [0, 3000, 7000, 15000, 30000]) {
+      if (waitMs) await new Promise((r) => setTimeout(r, waitMs));
+      const license = await refreshStatus();
+      if (license?.is_paid) break;
+    }
+  } finally {
+    paymentRefreshRunning = false;
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status === "complete" && PAYMENT_SUCCESS_URL.test(tab.url || "")) refreshAfterPayment();
+});
+
+/* The payment page's buttons can't do their job from the page: a tab the
+   extension opened can't close itself, and history.back() returns to the
+   checkout. The content script forwards the clicks here instead. */
+async function handlePaymentPageAction(action, tabId) {
+  if (action === "return") {
+    const optionsUrl = chrome.runtime.getURL("options/options.html");
+    const optionsTab = (await chrome.tabs.query({})).find((t) => (t.url || "").startsWith(optionsUrl));
+    if (optionsTab) {
+      await chrome.tabs.update(optionsTab.id, { active: true });
+      await chrome.windows.update(optionsTab.windowId, { focused: true }).catch(() => {});
+    } else {
+      await chrome.runtime.openOptionsPage();
+    }
+  }
+  if (tabId != null) await chrome.tabs.remove(tabId).catch(() => {});
+}
 
 /* ── webNavigation: detect HTTPS → HTTP downgrade redirects ── */
 const tabLastProtocol = new Map();
@@ -418,6 +663,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
         break;
       }
+      case "PAYMENT_PAGE_ACTION": {
+        if (!PAYMENT_SUCCESS_URL.test(sender.tab?.url || "")) {
+          sendResponse({ ok: false });
+          break;
+        }
+        await handlePaymentPageAction(msg.action, sender.tab.id);
+        sendResponse({ ok: true });
+        break;
+      }
+      case "LEAVE_PAGE": {
+        /* From the warning's "Go Back" when history cannot take the user off
+           the flagged site. Chrome's own "Back to safety" lands on a new tab
+           page; Firefox refuses about:newtab from an extension, so blank. */
+        const tabId = sender.tab?.id;
+        if (tabId != null) {
+          try {
+            await chrome.tabs.update(tabId, { url: "chrome://newtab/" });
+          } catch {
+            await chrome.tabs.update(tabId, { url: "about:blank" }).catch(() => {});
+          }
+        }
+        sendResponse({ ok: true });
+        break;
+      }
       case "REFRESH_LICENSE_STATE": {
         const license = await refreshStatus();
         sendResponse({ ok: true, license });
@@ -426,10 +695,60 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "INCREMENT_BLOCK_COUNT": {
         const stats = await incrementBlockCount();
         if (msg.threat) await appendThreatLog(msg.threat);
+        await recordActivity("threats");
+        updateBadge();
         sendResponse({ ok: true, stats });
         /* We just caught something for this user. If they have no account,
            this is the moment to ask — not install, and not day 3. */
         maybePromptForAccount("first-detection");
+        break;
+      }
+      case "PAGE_SCANNED": {
+        await recordActivity("pages");
+        updateBadge();
+        sendResponse({ ok: true });
+        break;
+      }
+      case "GET_ACTIVITY": {
+        const data = await getLocal([ACTIVITY_KEY, THREAT_LOG_KEY, STATS_KEY, LICENSE_KEY, WHITELIST_KEY, "installed_at"]);
+        sendResponse({
+          days: data[ACTIVITY_KEY] || {},
+          threats: data[THREAT_LOG_KEY] || [],
+          stats: data[STATS_KEY] || { blocked: 0 },
+          license: data[LICENSE_KEY] || null,
+          trusted: (data[WHITELIST_KEY] || []).length,
+          installed_at: data.installed_at || null
+        });
+        break;
+      }
+      case "OPEN_REPORT": {
+        await openReport();
+        sendResponse({ ok: true });
+        break;
+      }
+      case "OPEN_RECOVERY": {
+        const from = encodeURIComponent(msg.from || "popup");
+        await chrome.tabs.create({ url: `${RECOVERY_URL}?utm_source=extension&utm_medium=${from}` });
+        sendResponse({ ok: true });
+        break;
+      }
+      case "BREACH_FOR_DOMAIN": {
+        sendResponse({ breach: await breachForDomain(msg.domain) });
+        break;
+      }
+      case "FEED_CHECK": {
+        /* The content script sends its own hostname; the match is local. */
+        let listed = false;
+        try { listed = !!(await globalThis.PhishCleanFeed?.isListed(msg.host)); } catch { /* no feed yet */ }
+        sendResponse({ listed });
+        break;
+      }
+      case "PWNED_RANGE": {
+        try {
+          sendResponse({ ok: true, body: await pwnedRange(msg.prefix) });
+        } catch (error) {
+          sendResponse({ ok: false, error: error?.message || "range lookup failed" });
+        }
         break;
       }
       case "GET_THREAT_LOG": {

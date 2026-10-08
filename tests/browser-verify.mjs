@@ -14,7 +14,8 @@ import { fileURLToPath } from "url";
 import { tmpdir } from "os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const EXT = resolve(__dirname, "..", "extension");
+/* EXT_DIR=dist/chrome tests the exact package that goes to the store. */
+const EXT = resolve(__dirname, "..", process.env.EXT_DIR || "extension");
 const PORT = 8080;
 const BASE = `http://localhost:${PORT}`;
 
@@ -60,6 +61,15 @@ const setWhitelist = (worker, domains) =>
   worker.evaluate((d) => chrome.storage.local.set({ phishclean_whitelist_domains: d }), domains);
 const getWhitelist = (worker) =>
   worker.evaluate(() => chrome.storage.local.get("phishclean_whitelist_domains").then((d) => d.phishclean_whitelist_domains || []));
+const getActivity = (worker) =>
+  worker.evaluate(() => chrome.storage.local.get("phishclean_activity").then((d) => d.phishclean_activity || {}));
+const clearActivity = (worker) =>
+  worker.evaluate(() => chrome.storage.local.set({ phishclean_activity: {} }));
+const todayPages = (activity) => {
+  const d = new Date();
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return activity[key] || { pages: 0, threats: 0 };
+};
 const getThreats = (worker) =>
   worker.evaluate(() => chrome.storage.local.get("phishclean_threat_log").then((d) => d.phishclean_threat_log || []));
 
@@ -203,7 +213,7 @@ async function main() {
     await page.goto(`chrome-extension://${extId}/options/options.html`, { waitUntil: "load" });
     await page.waitForTimeout(800);
     ok("Options: no uncaught JS errors", optErrors.length === 0, optErrors.join("; "));
-    ok("Options: status pill shows Trial Active", /trial active/i.test(await page.textContent("#status-pill")));
+    ok("Options: status pill shows Trial", (await page.textContent("#status-pill"))?.trim() === "Trial");
     /* The optional mid-trial ask is shown on purpose (options.js), while the
        checkout card must not appear before the trial has ended. */
     ok("Options: optional account card shown during active trial", await page.$eval("#auth-card", (el) => el.style.display !== "none"));
@@ -236,6 +246,14 @@ async function main() {
     ok("Popup: $9/month opens the billing page (not the signup page)", /^https:\/\/www\.phishclean\.com\/billing\?/.test(billingUrl), billingUrl);
     ok("Popup: billing URL carries install_id and plan", /install_id=test/.test(billingUrl) && /plan=monthly/.test(billingUrl), billingUrl);
     if (billingTab) await billingTab.close();
+    /* A plain <a href> does nothing inside the popup; it must open a tab. */
+    const [supportTab] = await Promise.all([
+      context.waitForEvent("page", { timeout: 5000 }).catch(() => null),
+      page.click("#pw-support")
+    ]);
+    const supportUrl = supportTab?.url() || "";
+    ok("Popup: Contact support opens the contact page in a tab", supportUrl === "https://www.phishclean.com/#contact", supportUrl);
+    if (supportTab) await supportTab.close();
     await page.close();
 
     // ── Test 9 — Popup: add a trusted domain (functional) ──
@@ -263,6 +281,95 @@ async function main() {
     await page.waitForTimeout(2000);
     ok("Trusted: no alert on whitelisted domain", (await getThreats(worker)).length === 0);
     ok("Trusted: no modal host in DOM", !(await page.$("#phishclean-root")));
+    await page.close();
+
+    // ── Test 11 — Regional scam (India): fake e-challan page ──
+    console.log("\n── Test 11: Fake e-challan card page → REGIONAL_SCAM ──");
+    await setLicense(worker, TRIAL_LICENSE);
+    await resetSession(worker); await clearThreats(worker);
+    page = await context.newPage();
+    await page.goto(`${BASE}/test-india-echallan.html`, { waitUntil: "load" });
+    threat = await waitForThreat(worker);
+    ok("India: alert fired on fake e-challan page", !!threat);
+    if (threat) ok("India: REGIONAL_SCAM signal present", threat.signals?.includes("REGIONAL_SCAM"), JSON.stringify(threat.signals));
+    ok("India: warning modal shown", await page.evaluate(() => !!document.getElementById("phishclean-root")));
+    await page.close();
+
+    console.log("\n── Test 11b: Regional scam is Pro — off on the free tier ──");
+    await setLicense(worker, EXPIRED_LICENSE);
+    await clearThreats(worker);
+    page = await context.newPage();
+    await page.goto(`${BASE}/test-india-echallan.html`, { waitUntil: "load" });
+    await page.waitForTimeout(2000);
+    ok("India: no REGIONAL_SCAM alert on expired trial",
+      !(await getThreats(worker)).some((t) => t.signals?.includes("REGIONAL_SCAM")));
+    await page.close();
+
+    // ── Test 12 — Page counter, badge and weekly report ──
+    console.log("\n── Test 12: Pages-checked counter, badge, weekly report ──");
+    await setLicense(worker, TRIAL_LICENSE);
+    await resetSession(worker); await clearActivity(worker);
+    page = await context.newPage();
+    await page.goto(`${BASE}/test-safe-login.html`, { waitUntil: "load" });
+    await page.goto(`${BASE}/test-password.html`, { waitUntil: "load" });
+    await page.waitForTimeout(1200);
+    const act = todayPages(await getActivity(worker));
+    ok("Counter: two scanned pages counted today", act.pages === 2, JSON.stringify(act));
+    const badge = await worker.evaluate(() => chrome.action.getBadgeText({}));
+    ok("Badge: shows today's page count", badge === "2", `badge="${badge}"`);
+    await setWhitelist(worker, ["localhost"]);
+    await page.goto(`${BASE}/test-safe-login.html`, { waitUntil: "load" });
+    await page.waitForTimeout(1200);
+    ok("Counter: whitelisted page is not claimed as checked", todayPages(await getActivity(worker)).pages === 2);
+    await resetSession(worker);
+    await page.close();
+
+    page = await context.newPage();
+    const reportErrors = [];
+    page.on("pageerror", (e) => reportErrors.push(e.message));
+    await page.goto(`chrome-extension://${extId}/report/report.html`, { waitUntil: "load" });
+    await page.waitForTimeout(800);
+    ok("Report: no uncaught JS errors", reportErrors.length === 0, reportErrors.join("; "));
+    ok("Report: pages tile shows this week's count", (await page.textContent("#t-pages"))?.trim() === "2");
+    ok("Report: seven day columns drawn", (await page.$$("#chart .col")).length === 7);
+    ok("Report: trial CTA visible", await page.$eval("#plan-cta", (el) => !el.hidden));
+    await page.close();
+
+    page = await context.newPage();
+    await page.goto(`chrome-extension://${extId}/popup/popup.html`, { waitUntil: "load" });
+    await page.waitForTimeout(800);
+    ok("Popup: week row shows page count", /2 pages checked/.test(await page.textContent("#week-text")));
+    await page.close();
+
+    // ── Test 13 — Regional prices come from the licence check (IP country) ──
+    console.log("\n── Test 13: Prices from the server's IP-country decision ──");
+    const INR_LABELS = { monthly: "\u20B9149/month", annual: "\u20B9999/year" };
+    await setLicense(worker, { ...EXPIRED_LICENSE, last_checked_at: new Date().toISOString(), pricing: INR_LABELS });
+    page = await context.newPage();
+    await page.goto(`chrome-extension://${extId}/popup/popup.html`, { waitUntil: "load" });
+    await page.waitForTimeout(600);
+    ok("Popup paywall: rupee monthly price", (await page.textContent("#pw-monthly"))?.trim() === INR_LABELS.monthly, await page.textContent("#pw-monthly"));
+    ok("Popup paywall: rupee annual price", (await page.textContent("#pw-annual"))?.includes(INR_LABELS.annual));
+    await page.goto(`chrome-extension://${extId}/options/options.html`, { waitUntil: "load" });
+    await page.waitForTimeout(600);
+    ok("Options: rupee prices on pay button", /\u20B9149\/month or \u20B9999\/year/.test(await page.textContent("#pay-prices")), await page.textContent("#pay-prices"));
+
+    await setLicense(worker, { ...EXPIRED_LICENSE, pricing: null });
+    await page.goto(`chrome-extension://${extId}/popup/popup.html`, { waitUntil: "load" });
+    await page.waitForTimeout(600);
+    ok("Popup paywall: USD when the server sent no prices", (await page.textContent("#pw-monthly"))?.trim() === "$9/month");
+
+    /* A real licence check: the server's pricing labels are stored. */
+    await context.unroute("**://www.phishclean.com/**");
+    await context.route("**://www.phishclean.com/**", (r) => r.abort());
+    await context.route("**://www.phishclean.com/api/status", (r) => r.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ trial_active: false, is_paid: false, needs_account: true, protection_level: "free", country: "IN",
+        pricing: { currency: "inr", monthly: { label: INR_LABELS.monthly }, annual: { label: INR_LABELS.annual } } })
+    }));
+    await page.evaluate(() => chrome.runtime.sendMessage({ type: "REFRESH_LICENSE_STATE" }));
+    const stored = await worker.evaluate(() => chrome.storage.local.get("phishclean_license").then((d) => d.phishclean_license));
+    ok("Refresh: server price labels stored on the licence", stored?.pricing?.monthly === INR_LABELS.monthly, JSON.stringify(stored?.pricing));
     await page.close();
 
   } finally {

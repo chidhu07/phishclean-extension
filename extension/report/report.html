@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Weekly Safety Report — PhishClean</title>
+  <link rel="stylesheet" href="report.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="top">
+      <a class="logo" href="https://www.phishclean.com/?utm_source=extension&amp;utm_medium=report" target="_blank" rel="noopener" title="Go to phishclean.com">
+        <svg width="28" height="31" viewBox="0 0 32 36" fill="none" aria-hidden="true"><path d="M16 1.5L3 7v10.5c0 9 5.5 16.5 13 18.5 7.5-2 13-9.5 13-18.5V7L16 1.5z" fill="#e2e8f0"/><path d="M16 4.5L6 9v8.5c0 7.5 4.5 13.5 10 15.5 5.5-2 10-8 10-15.5V9L16 4.5z" fill="#cbd5e1"/><path d="M11 18.5l3.5 3.5 7-7" stroke="#22c55e" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>PhishClean</span>
+      </a>
+      <span class="range" id="range"></span>
+    </header>
+
+    <h1>Your weekly safety report</h1>
+    <p class="lede" id="lede">Loading…</p>
+
+    <section class="tiles" aria-label="This week">
+      <div class="tile">
+        <div class="tile-num" id="t-pages">0</div>
+        <div class="tile-label">Pages checked</div>
+      </div>
+      <div class="tile">
+        <div class="tile-num" id="t-threats">0</div>
+        <div class="tile-label">Threats blocked</div>
+      </div>
+      <div class="tile">
+        <div class="tile-num" id="t-trusted">0</div>
+        <div class="tile-label">Trusted sites</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Pages checked per day</h2>
+      <div class="chart" id="chart" role="img" aria-describedby="chart-table-summary"></div>
+      <div class="tooltip" id="tooltip" role="status" aria-live="polite" hidden></div>
+      <details class="table-view">
+        <summary id="chart-table-summary">Show as a table</summary>
+        <table>
+          <thead><tr><th scope="col">Day</th><th scope="col">Pages checked</th><th scope="col">Threats blocked</th></tr></thead>
+          <tbody id="chart-table"></tbody>
+        </table>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>What PhishClean caught</h2>
+      <ul class="threats" id="threats"></ul>
+      <p class="empty" id="threats-empty" hidden>Nothing dangerous this week. Every page PhishClean checked looked clean.</p>
+    </section>
+
+    <section class="card plan" id="plan">
+      <h2>Your protection</h2>
+      <p id="plan-text"></p>
+      <button class="btn" id="plan-cta" hidden>Keep all 20 checks on</button>
+    </section>
+
+    <section class="card help">
+      <h2>Clicked something you shouldn't have?</h2>
+      <p>If you typed a password, card number, UPI PIN or OTP into a page you now doubt, the first 30 minutes matter most.</p>
+      <a class="link" id="recovery" href="#">Step-by-step: what to do now &rarr;</a>
+    </section>
+
+    <p class="privacy"><span aria-hidden="true">&#x2713;</span> This report is built on your device from local counts. None of it is sent anywhere.</p>
+  </main>
+  <script src="report.js"></script>
+</body>
+</html>

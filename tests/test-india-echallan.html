@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Test: fake e-challan payment page (REGIONAL_SCAM)</title>
+</head>
+<body>
+  <!-- Mimics the fake Parivahan e-challan pages sent by SMS: a pending traffic
+       fine story plus a card form, on a domain that is not parivahan.gov.in.
+       Expected: REGIONAL_SCAM fires (Pro), and alone crosses the alert threshold. -->
+  <h1>e-Challan Payment</h1>
+  <p>Dear vehicle owner, you have a pending challan for a traffic violation. Pay Rs 500 today to avoid court action.</p>
+  <form>
+    <label for="cardNumber">Card Number</label>
+    <input id="cardNumber" name="cardNumber" inputmode="numeric" />
+    <label for="expiry">Expiry</label>
+    <input id="expiry" name="expiry" />
+    <label for="cvv">CVV</label>
+    <input id="cvv" name="cvv" />
+    <button type="submit">Pay now</button>
+  </form>
+</body>
+</html>

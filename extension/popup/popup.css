@@ -34,6 +34,7 @@ body {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -48,16 +49,17 @@ body {
   margin-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
-.logo { display: flex; align-items: center; gap: 9px; }
+.logo { display: flex; align-items: center; gap: 9px; color: inherit; text-decoration: none; }
+.logo:hover .logo-text { text-decoration: underline; text-underline-offset: 3px; }
 .logo svg { filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.25)); }
-.logo-text { font-size: 16px; font-weight: 700; letter-spacing: -0.2px; color: #f8fafc; }
+.logo-text { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; color: #f8fafc; }
 
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   padding: 4px 11px;
   border-radius: 20px;
   text-transform: uppercase;
@@ -95,15 +97,15 @@ body {
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
 }
 .stat-num {
-  font-size: 27px;
-  font-weight: 800;
+  font-size: 24px;
+  font-weight: 600;
   line-height: 1.15;
   color: #f1f5f9;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.5px;
 }
 .stat-card:first-child .stat-num { color: var(--red); text-shadow: 0 0 18px rgba(248,113,113,0.25); }
-.stat-label { font-size: 10.5px; font-weight: 600; color: var(--text-3); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-label { font-size: 11px; font-weight: 600; color: var(--text-3); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* License */
 .license-section {
@@ -119,8 +121,8 @@ body {
   align-items: center;
   padding: 5px 0;
 }
-.license-label { color: var(--text-2); }
-.license-value { color: var(--text); font-weight: 600; }
+.license-label { color: var(--text-2); white-space: nowrap; }
+.license-value { color: var(--text); text-align: right; }
 
 .btn {
   border: none;
@@ -147,7 +149,7 @@ body {
   display: block;
   text-align: center;
   margin-top: 8px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-2);
   text-decoration: none;
   cursor: pointer;
@@ -176,8 +178,8 @@ body {
 }
 .btn-report.locked:hover { color: var(--text-2); }
 .report-pro-badge {
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
   background: rgba(99,102,241,0.18);
   color: #a5b4fc;
   padding: 2px 6px;
@@ -192,7 +194,7 @@ body {
   margin-top: 9px;
 }
 .name-prompt.hidden { display: none; }
-.name-label { font-size: 12px; color: var(--text-2); margin-bottom: 9px; display: block; }
+.name-label { font-size: 13px; color: var(--text-2); margin-bottom: 9px; display: block; }
 .name-input-row { display: flex; gap: 8px; }
 
 /* Whitelist */
@@ -209,7 +211,7 @@ body {
   align-items: center;
   margin-bottom: 10px;
 }
-.section-title { font-weight: 700; color: var(--text-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
+.section-title { font-weight: 600; color: var(--text-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
 /* Icon button — "trust current site" shortcut in the section header.
    SVG icon (not a text glyph) so it renders crisply and identically
    in Chrome, Firefox and Edge. */
@@ -234,7 +236,7 @@ body {
   color: var(--text-2);
   padding: 7px 14px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -249,8 +251,8 @@ body {
   color: #04250f;
   padding: 7px 16px;
   border-radius: 8px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
   box-shadow: 0 3px 10px rgba(34, 197, 94, 0.25), inset 0 1px 0 rgba(255,255,255,0.25);
@@ -264,7 +266,7 @@ body {
 .wl-list::-webkit-scrollbar { width: 6px; }
 .wl-list::-webkit-scrollbar-thumb { background: #2b3446; border-radius: 3px; }
 .wl-list::-webkit-scrollbar-track { background: transparent; }
-.wl-empty { color: var(--text-3); font-size: 12px; text-align: center; padding: 10px 8px; }
+.wl-empty { color: var(--text-3); font-size: 13px; text-align: center; padding: 10px 8px; }
 .wl-item {
   display: flex;
   justify-content: space-between;
@@ -275,7 +277,7 @@ body {
   transition: background 0.12s;
 }
 .wl-item:hover { background: rgba(148,163,184,0.08); }
-.wl-domain { font-size: 12px; color: #cbd5e1; }
+.wl-domain { font-size: 13px; color: #cbd5e1; }
 .wl-remove {
   background: none;
   border: none;
@@ -302,7 +304,7 @@ body {
   border-radius: 8px;
   padding: 7px 11px;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -311,7 +313,7 @@ body {
 .wl-input::placeholder { color: var(--text-3); }
 
 .wl-msg {
-  font-size: 11px;
+  font-size: 13px;
   padding: 0 2px;
   margin-bottom: 6px;
   min-height: 0;
@@ -347,8 +349,8 @@ body {
   margin-bottom: 24px;
 }
 .paywall-title {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
   color: #f8fafc;
   margin-bottom: 8px;
   letter-spacing: -0.2px;
@@ -365,7 +367,7 @@ body {
   border: none;
   border-radius: 9px;
   padding: 12px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   margin-bottom: 8px;
@@ -380,18 +382,18 @@ body {
 .paywall-btn.primary:hover { background: linear-gradient(180deg, #4f8dff, #2b6ae8); }
 .paywall-btn.secondary { background: rgba(148,163,184,0.08); color: var(--text); border: 1px solid var(--line-strong); }
 .paywall-btn.secondary:hover { background: rgba(148,163,184,0.16); }
-.paywall-save { font-size: 11px; color: #4ade80; font-weight: 700; }
+.paywall-save { font-size: 11px; color: #4ade80; font-weight: 600; }
 .paywall-skip {
   display: block;
   margin-top: 12px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-3);
   text-decoration: none;
   cursor: pointer;
   transition: color 0.15s;
 }
 .paywall-skip:hover { color: var(--text-2); }
-.paywall-support { margin-top: 16px; font-size: 12px; }
+.paywall-support { margin-top: 16px; font-size: 13px; }
 .paywall-support a { color: #60a5fa; text-decoration: none; }
 .paywall-support a:hover { text-decoration: underline; }
 
@@ -407,14 +409,31 @@ body {
   align-items: center;
   gap: 8px;
 }
-.trial-warning-text { font-size: 12px; color: var(--amber); font-weight: 500; }
-.trial-warning a { color: #60a5fa; text-decoration: none; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.trial-warning-text { font-size: 13px; color: var(--amber); }
+.trial-warning a { color: #60a5fa; text-decoration: none; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .trial-warning a:hover { text-decoration: underline; }
 
 /* Footer */
+/* This week */
+.week-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; margin: -4px 0 14px; padding: 9px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--text-2); font-size: 13px; text-align: left; cursor: pointer;
+}
+.week-row:hover { border-color: var(--line-strong); color: var(--text); }
+.week-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.week-label { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.5px; }
+.week-text { color: var(--text); font-size: 13px; }
+.week-blocked { color: var(--red); font-weight: 600; }
+.feed-line { margin: -6px 2px 14px; font-size: 12px; color: var(--text-3); }
+.feed-line.hidden { display: none; }
+.week-link { color: #93c5fd; white-space: nowrap; font-weight: 600; font-size: 12.5px; }
+
 .footer {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 14px;
   align-items: center;
   padding-top: 12px;
   border-top: 1px solid var(--line);
@@ -422,9 +441,10 @@ body {
 .footer a {
   color: var(--text-2);
   text-decoration: none;
-  font-size: 12px;
+  font-size: 13px;
   transition: color 0.15s;
 }
 .footer a:hover { color: var(--text); }
+.footer .privacy-note { flex-basis: 100%; }
 .privacy-note { font-size: 11px; color: var(--text-3); display: inline-flex; align-items: center; gap: 5px; }
-.privacy-note::before { content: "\2713"; color: var(--green); font-weight: 700; }
+.privacy-note::before { content: "\2713"; color: var(--green); font-weight: 600; }

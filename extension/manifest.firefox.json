@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "PhishClean",
-  "version": "1.2.0",
+  "version": "1.5.0",
   "description": "Privacy-first phishing and token leakage protection. All detection runs locally on your device.",
 
-  "permissions": ["storage", "tabs", "webRequest", "webNavigation", "alarms"],
+  "permissions": ["storage", "tabs", "webRequest", "webNavigation", "alarms", "notifications"],
   "host_permissions": ["<all_urls>"],
 
   "content_security_policy": {
@@ -12,13 +12,13 @@
   },
 
   "background": {
-    "scripts": ["lib/publicSuffix.js", "background.js"]
+    "scripts": ["lib/publicSuffix.js", "lib/phishFeed.js", "background.js"]
   },
 
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["lib/publicSuffix.js", "riskEngine.js", "secretScanner.js", "contentScript.js", "linkTooltip.js"],
+      "js": ["lib/publicSuffix.js", "riskEngine.js", "secretScanner.js", "contentScript.js", "linkTooltip.js", "breachCheck.js"],
       "run_at": "document_idle"
     }
   ],
