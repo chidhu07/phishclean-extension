@@ -5,7 +5,7 @@
   "type": "module",
   "description": "PhishClean browser extension source — published so the privacy claims can be verified.",
   "scripts": {
-    "test": "node tests/browser-verify.mjs",
+    "test": "node tests/browser-verify.mjs && node tests/breach-verify.mjs && node tests/feed-verify.mjs && node --test tests/tech-scam.test.mjs",
     "build": "bash build.sh"
   },
   "devDependencies": {
