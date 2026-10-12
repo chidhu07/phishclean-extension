@@ -18,6 +18,7 @@
   if (!engine) return;
 
   const WHITELIST_KEY = "phishclean_whitelist_domains";
+  const ORG_TRUSTED_KEY = "phishclean_org_trusted";
   const LICENSE_KEY = "phishclean_license";
   const COOLDOWN_MS = 5 * 60 * 1000; /* 5 minutes between identical alerts */
 
@@ -36,8 +37,9 @@
 
   /* ── load stored whitelist + license ── */
   async function loadLocalState() {
-    const data = await chrome.storage.local.get([WHITELIST_KEY, LICENSE_KEY]);
+    const data = await chrome.storage.local.get([WHITELIST_KEY, LICENSE_KEY, ORG_TRUSTED_KEY]);
     state.whitelist = data[WHITELIST_KEY] || [];
+    state.orgTrusted = data[ORG_TRUSTED_KEY] || [];
     const license = data[LICENSE_KEY];
     /* Detection always runs. The licence decides how much of it: without a
        trial or a plan we still run the free signals, which is why
@@ -49,8 +51,15 @@
     state.ignoreOnce = sessionStorage.getItem(`phishclean_ignore_${host()}`) === "1";
   }
 
+  let stateLoading = null;
+  const stateLoaded = () => stateLoading || (stateLoading = loadLocalState());
+
   function isWhitelisted() {
-    return state.whitelist.includes(host());
+    const h = host();
+    /* The user's own list is exact hosts; the organisation's (set by IT
+       policy) covers subdomains too, e.g. corp.example.com and sso.corp... */
+    return state.whitelist.includes(h) ||
+      (state.orgTrusted || []).some((d) => h === d || h.endsWith("." + d));
   }
 
   async function addToWhitelist() {
@@ -263,6 +272,39 @@
     }
   }
 
+  /* PRO: "click Allow to prove you're not a robot" — see
+     detectNotificationBait in riskEngine. Pages that can no longer ask
+     (permission already granted or blocked) are skipped there. */
+  function detectNotificationBait() {
+    if (typeof engine.detectNotificationBait !== "function") return;
+    if (state.signals.has(engine.SIGNALS.NOTIFICATION_BAIT)) return;
+    const raw = document.body?.textContent || "";
+    if (!/allow/i.test(raw.slice(0, 20000))) return;
+    let permission = "default";
+    try { permission = Notification.permission; } catch { /* no Notification API */ }
+    if (engine.detectNotificationBait(document.body.innerText || "", permission)) {
+      state.signals.add(engine.SIGNALS.NOTIFICATION_BAIT);
+    }
+  }
+
+  /* PRO: fake online store — see detectFakeShop in riskEngine. A real shop
+     links its contact, returns and privacy pages; many fakes leave them out. */
+  const POLICY_LINK_RE = /contact|refund|return|privacy|terms|shipping|impressum|about/i;
+  function detectFakeShop() {
+    if (typeof engine.detectFakeShop !== "function") return;
+    if (state.signals.has(engine.SIGNALS.FAKE_SHOP)) return;
+    const raw = document.body?.textContent || "";
+    if (!/%/.test(raw) || !/cart|bag|basket|buy|checkout|shop/i.test(raw)) return;
+    let missingPolicies = true;
+    for (const a of document.querySelectorAll("a[href]")) {
+      if (a.protocol === "mailto:" || POLICY_LINK_RE.test(a.getAttribute("href") || "") ||
+          POLICY_LINK_RE.test(a.textContent || "")) { missingPolicies = false; break; }
+    }
+    if (engine.detectFakeShop(host(), document.body.innerText || "", missingPolicies)) {
+      state.signals.add(engine.SIGNALS.FAKE_SHOP);
+    }
+  }
+
   /* PRO: secret leak scanner — hardcoded API keys in page source + same-origin bundles */
   function applySecretResult(result) {
     if (!result || result.skipped || !result.found) return;
@@ -344,17 +386,27 @@
     const levelColor = level === "danger" ? "#ef4444" : level === "warning" ? "#f59e0b" : "#22c55e";
     const reported = state.signals.has(engine.SIGNALS.KNOWN_PHISHING);
     const fakeAlert = state.signals.has(engine.SIGNALS.TECH_SUPPORT_SCAM);
-    const title = fakeAlert ? "Fake virus warning" : reported ? "Reported phishing site" : "Potential Risk Detected";
+    const allowBait = state.signals.has(engine.SIGNALS.NOTIFICATION_BAIT);
+    const fakeShop = state.signals.has(engine.SIGNALS.FAKE_SHOP);
+    const title = fakeAlert ? "Fake virus warning"
+      : reported ? "Reported phishing site"
+        : allowBait ? "Don't click Allow"
+          : fakeShop ? "This may be a fake shop"
+            : "Potential Risk Detected";
     const subtitle = fakeAlert
       ? "Nothing on your computer is infected. This page is pretending to be a security alert, and the number on it goes to scammers. Don't call it."
       : reported
         ? "This site has been reported for stealing passwords or payment details."
-        : "PhishClean found signs this page may not be safe.";
+        : allowBait
+          ? "There is nothing to verify. Allow would let this site push spam and fake virus alerts to your desktop. Click Block or close the prompt."
+          : fakeShop
+            ? "Check the brand's official website before you pay. If you already paid by card, call your bank and ask for a chargeback."
+            : "PhishClean found signs this page may not be safe.";
     /* A scam page in fullscreen would hide this warning behind itself. */
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     const licenseNote = reported
       ? "Caught by the reported-phishing list, which stays free. New phishing pages often go unreported for days; the lookalike-domain and fake-login checks that catch those are paused on this install."
-      : "Caught by the checks that never expire. Seventeen more &mdash; lookalike domains, fake brand logins, fake virus warnings, leaked passwords &mdash; are paused on this install.";
+      : "Caught by the checks that never expire. Nineteen more &mdash; lookalike domains, fake brand logins, fake shops, fake virus warnings, leaked passwords &mdash; are paused on this install.";
 
     shadow.innerHTML = `
       <style>
@@ -437,7 +489,7 @@
             <button class="btn btn-back" id="btn-back">Go Back</button>
             <button class="btn btn-ignore" id="btn-ignore">Ignore Once</button>
             <button class="btn btn-whitelist" id="btn-wl">Trust this domain</button>
-            <button class="btn btn-upgrade ${state.proEnabled ? "hidden" : ""}" id="btn-up">Restore the other 17 checks</button>
+            <button class="btn btn-upgrade ${state.proEnabled ? "hidden" : ""}" id="btn-up">Restore the other 19 checks</button>
           </div>
 
           ${fakeAlert
@@ -532,6 +584,9 @@
 
   /* ── main alert logic ── */
   async function maybeAlert() {
+    /* A background message (HTTPS downgrade, auth header) can arrive before
+       run() has read the trusted lists; decide only once they are loaded. */
+    await stateLoaded();
     if (isWhitelisted() || state.ignoreOnce) return;
 
     const result = engine.scoreSignals(state.signals, state.proEnabled);
@@ -589,7 +644,8 @@
     detectCredentialInUrl,
     detectVisualAnomalies, detectBacklinkImpersonation, detectTokenStorage,
     detectHttpPassword, detectHttpFromHttps, detectLookalikeDomain,
-    detectRegionalScam, detectTechSupportScam
+    detectRegionalScam, detectTechSupportScam, detectNotificationBait,
+    detectFakeShop
   ];
 
   function runSyncDetectors() {
@@ -644,14 +700,14 @@
            people's pages (github.io, amazonaws.com), and one of those can be
            on the reported list. The feed already leaves out the platforms'
            own domains, so only a specific reported host warns here. */
-        await loadLocalState();
+        await stateLoaded();
         if (isWhitelisted()) return;
         await detectReportedPhishing();
         await maybeAlert();
         return;
       }
 
-      await loadLocalState();
+      await stateLoaded();
       if (isWhitelisted()) return;
 
       const reported = detectReportedPhishing();

@@ -51,7 +51,7 @@ function showWlMsg(text, type) {
 function renderBadge(license) {
   const badge = $("#status-badge");
   if (license?.is_paid) {
-    badge.textContent = "Pro";
+    badge.textContent = license.plan_type === "team" ? "Team" : "Pro";
     badge.className = "badge paid";
   } else if (license?.trial_active) {
     badge.textContent = "Trial";
@@ -82,6 +82,11 @@ function renderLicense(license) {
   if (license?.is_paid) {
     trialRow.style.display = "none";
     upgradeBtn.classList.add("hidden");
+    /* Team plan: the organisation pays and manages it, not the employee. */
+    if (license.plan_type === "team") {
+      planEl.textContent = license.org?.name ? `Team, ${license.org.name}` : "Team";
+      return;
+    }
     /* Lifetime (founder/comp) accounts have no subscription to manage. */
     if (license.plan_type === "lifetime") {
       planEl.textContent = "Pro, lifetime";
@@ -115,12 +120,12 @@ function renderLicense(license) {
     planEl.textContent = "Free trial";
     trialRow.style.display = "flex";
     countdown.textContent = remaining <= 1 ? "All checks on, last day" : `All checks on, ${remaining} days left`;
-    upgradeBtn.classList.remove("hidden");
+    upgradeBtn.classList.toggle("hidden", !!license?.managed);
   } else {
-    planEl.textContent = "Free";
+    planEl.textContent = license?.managed ? "Free (managed by your organisation)" : "Free";
     trialRow.style.display = "flex";
     countdown.textContent = "Core checks only";
-    upgradeBtn.classList.remove("hidden");
+    upgradeBtn.classList.toggle("hidden", !!license?.managed);
   }
 }
 
@@ -292,8 +297,9 @@ async function init() {
   renderStats(stats);
   renderReportButton(license);
 
-  /* Show paywall overlay when setup or payment is still pending */
-  if (license?.needs_account || license?.needs_payment) {
+  /* Show paywall overlay when setup or payment is still pending. Never on a
+     browser IT deployed with an org key: the company pays, not the employee. */
+  if ((license?.needs_account || license?.needs_payment) && !license?.managed) {
     showPaymentWall(license?.install_id || "");
   }
 

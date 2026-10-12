@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "orgKey": {
+      "title": "PhishClean organisation key",
+      "description": "The key from your PhishClean for Teams admin page (starts with pc_org_). Puts this browser on your organisation's plan: every check on, no sign-up or payment prompts for the user.",
+      "type": "string"
+    },
+    "trustedDomains": {
+      "title": "Trusted domains",
+      "description": "Domains PhishClean never warns about, such as your own sign-in and internal sites (for example corp.example.com). Applies to the domain and its subdomains.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

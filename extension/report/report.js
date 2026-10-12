@@ -149,18 +149,18 @@ function renderPlan(license) {
   const text = $("#plan-text");
   const cta = $("#plan-cta");
   if (license?.is_paid) {
-    text.textContent = "All 20 checks are on. Thank you for supporting PhishClean.";
+    text.textContent = "All 22 checks are on. Thank you for supporting PhishClean.";
     return;
   }
   if (license?.trial_active) {
     const days = Math.max(0, Number(license.days_remaining || 0));
-    text.textContent = `Your free trial has ${plural(days, "day", "days")} left, with all 20 checks on. ` +
-      "When it ends, reported-phishing blocking, link safety and password-field checks keep running, and the other 17 pause.";
-    cta.textContent = "Keep all 20 checks on";
+    text.textContent = `Your free trial has ${plural(days, "day", "days")} left, with all 22 checks on. ` +
+      "When it ends, reported-phishing blocking, link safety and password-field checks keep running, and the other 19 pause.";
+    cta.textContent = "Keep all 22 checks on";
   } else {
-    text.textContent = "3 of 20 checks are running: reported-phishing blocking, link safety and password fields. " +
-      "The other 17 are paused, including lookalike domains, fake virus warnings, leaked passwords, regional scam pages and HTTPS downgrades.";
-    cta.textContent = "Turn the other 17 back on";
+    text.textContent = "3 of 22 checks are running: reported-phishing blocking, link safety and password fields. " +
+      "The other 19 are paused, including lookalike domains, fake shops, fake virus warnings, leaked passwords, regional scam pages and HTTPS downgrades.";
+    cta.textContent = "Turn the other 19 back on";
   }
   cta.hidden = false;
   cta.addEventListener("click", () => chrome.runtime.sendMessage({ type: "OPEN_PAYMENT" }));

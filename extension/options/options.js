@@ -27,8 +27,10 @@ function renderStatusCard() {
 
   document.getElementById("install-id").textContent = state.installId || "-";
   document.getElementById("account-email").textContent = email;
+  const team = license.is_paid && license.plan_type === "team";
   document.getElementById("status").textContent = license.is_paid
-    ? (license.plan_type === "lifetime" ? "Pro, lifetime"
+    ? (team ? `Team${license.org?.name ? `, ${license.org.name}` : ""}`
+      : license.plan_type === "lifetime" ? "Pro, lifetime"
       : license.plan_type === "annual" ? "Pro, annual" : "Pro, monthly")
     : license.trial_active
       ? "Free trial"
@@ -42,7 +44,11 @@ function renderStatusCard() {
     : "Core checks only";
 
   const pill = document.getElementById("status-pill");
-  if (license.is_paid) {
+  if (team) {
+    pill.textContent = "Team";
+    pill.className = "pill success";
+    setMsg("status-msg", "");
+  } else if (license.is_paid) {
     pill.textContent = "Pro";
     pill.className = "pill success";
     setMsg("status-msg", "");
@@ -65,7 +71,8 @@ function renderStatusCard() {
      hidden once paid, but a paid install with no account loses its plan on
      reinstall; the account is the only thing that carries it (signing in
      copies the install's payment onto the account). */
-  document.getElementById("auth-card").style.display = signedOut ? "" : "none";
+  /* A Team install is covered by the organisation; an account adds nothing. */
+  document.getElementById("auth-card").style.display = signedOut && !team ? "" : "none";
 
   /* An account is never required to pay — checkout is keyed by install id.
      It is only the way to carry a trial or a plan to another browser, so it
@@ -86,14 +93,17 @@ function renderStatusCard() {
      hid the offer from exactly the anonymous users who make up the funnel.
      The offline-at-install fallback licence has none of these set, so it
      does not get a "Trial Ended" card for a trial that has not started. */
-  const trialEnded = trialOver && !!(license.trial_expires_at || license.needs_payment || license.needs_account);
+  /* Not on IT-deployed browsers: the organisation pays, not the employee. */
+  const trialEnded = trialOver && !license.managed && !!(license.trial_expires_at || license.needs_payment || license.needs_account);
   document.getElementById("payment-card").style.display = trialEnded ? "" : "none";
 
   /* One upgrade button per screen: when the checkout card is showing, it
      owns the offer and the status card stays quiet. */
-  document.getElementById("open-billing").style.display = license.is_paid || trialEnded ? "none" : "";
+  document.getElementById("open-billing").style.display = license.is_paid || trialEnded || license.managed ? "none" : "";
 
-  document.getElementById("intro").textContent = license.is_paid
+  document.getElementById("intro").textContent = team
+    ? `Managed by ${license.org?.name || "your organisation"}. Every check is running on every page you open.`
+    : license.is_paid
     ? "Every check is running on every page you open."
     : license.trial_active
       ? "Every check is running during your free trial. After it ends, reported-phishing blocking, link safety and password checks stay on for free."
@@ -224,3 +234,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 applyTabState();
 loadState();
+
+/* Search result badges (searchBadges.js) are on unless switched off here. */
+const searchBadges = document.getElementById("search-badges");
+chrome.storage.local.get("phishclean_search_badges").then((d) => {
+  searchBadges.checked = d.phishclean_search_badges !== false;
+});
+searchBadges.addEventListener("change", () => {
+  chrome.storage.local.set({ phishclean_search_badges: searchBadges.checked });
+});

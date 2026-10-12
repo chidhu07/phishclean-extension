@@ -269,3 +269,6 @@ h2 { font-size: 15px; font-weight: 600; color: var(--text); }
 
 #forgot-password { color: #60a5fa; text-decoration: none; }
 #forgot-password:hover { text-decoration: underline; }
+
+.toggle-row { gap: 16px; cursor: pointer; }
+.toggle-row input { width: 18px; height: 18px; flex-shrink: 0; accent-color: #22c55e; cursor: pointer; }

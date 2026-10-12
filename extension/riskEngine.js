@@ -23,7 +23,9 @@
     LOOKALIKE_DOMAIN: "LOOKALIKE_DOMAIN",
     REGIONAL_SCAM: "REGIONAL_SCAM",
     KNOWN_PHISHING: "KNOWN_PHISHING",
-    TECH_SUPPORT_SCAM: "TECH_SUPPORT_SCAM"
+    TECH_SUPPORT_SCAM: "TECH_SUPPORT_SCAM",
+    NOTIFICATION_BAIT: "NOTIFICATION_BAIT",
+    FAKE_SHOP: "FAKE_SHOP"
   };
 
   const WEIGHTS = {
@@ -50,7 +52,13 @@
     /* A reported phishing host (lib/phishFeed.js). Alerts on its own. */
     KNOWN_PHISHING: 60,
     /* Already requires a support number plus two scam-script phrases. */
-    TECH_SUPPORT_SCAM: 60
+    TECH_SUPPORT_SCAM: 60,
+    /* Already requires "click Allow" plus a fake reason (robot check, video,
+       download) on a short page that can still ask for the permission. */
+    NOTIFICATION_BAIT: 45,
+    /* Already requires a shop, implausible discounts and a brand name in a
+       domain the brand does not own (or four weaker cues together). */
+    FAKE_SHOP: 45
   };
 
   const THRESHOLD = 40;
@@ -80,6 +88,8 @@
     LOOKALIKE_DOMAIN: "This domain closely imitates a well-known brand — likely a lookalike (typosquatting or homograph) phishing site.",
     KNOWN_PHISHING: "This site is on a list of reported phishing sites. It was checked on your device; the address was not sent anywhere.",
     TECH_SUPPORT_SCAM: "This page imitates a virus or security warning and tells you to call a support number. Real security software never does that; the number goes to scammers.",
+    NOTIFICATION_BAIT: "This page tells you to click \"Allow\" to prove you are human, play a video or start a download. That button only lets the site send you notifications, which spam sites fill with fake virus alerts, scam offers and adult ads.",
+    FAKE_SHOP: "This looks like a fake online store: prices far below what the real product costs, on a site that is not the brand's own. Fake stores take the payment and send nothing, or a counterfeit.",
     REGIONAL_SCAM: "This page follows a known scam script (fake traffic e-challan, KYC update, electricity disconnection, held parcel, tax refund or reward points) and asks for card, UPI or OTP details on a site that is not the real bank or government service."
   };
 
@@ -385,6 +395,115 @@
     return cues >= 2 || (cues >= 1 && !!fullscreen);
   }
 
+  /* ── Notification permission bait ──
+     "Click Allow to verify you are not a robot / to watch the video / to
+     start your download." Allow is the browser's notification prompt, and the
+     site then pushes fake virus alerts and scam ads to the desktop for weeks.
+     It takes the instruction to press Allow and a fake reason for it, on a
+     short page, while the site can still ask (permission is "default"). A
+     help article explaining the trick quotes the phrase or runs long. */
+  const ALLOW_CUE_RE = /\b(?:click|press|tap|hit|select|choose)\s+(?:on\s+)?(?:the\s+)?allow\b/;
+  const ALLOW_REASON_RES = [
+    /\b(?:not|aren.?t)\s+a\s+robot\b/,
+    /\b(?:verify|confirm|prove)\s+(?:that\s+)?(?:you\s+are|you.?re)\s+(?:a\s+)?(?:human|not a robot|18|over 18|an adult)/,
+    /\bto\s+(?:continue|proceed|watch|play|view|see|access|download|start|unlock|get|claim|enter)\b/,
+    /\b(?:your|the)\s+(?:download|file|video|stream|movie|link|content|prize|reward)\s+is\s+(?:ready|almost ready|loading|waiting)/,
+    /\b(?:captcha|age verification|human verification)\b/
+  ];
+  const NOTIFICATION_PAGE_MAX_CHARS = 4000;
+
+  /**
+   * @param {string} text        visible page text
+   * @param {string} permission  Notification.permission for this origin
+   */
+  function detectNotificationBait(text, permission) {
+    if (permission && permission !== "default") return false;
+    const t = (text || "").toLowerCase().replace(/["“”'‘’«»]allow["“”'‘’«»]/g, "allow");
+    if (t.length > NOTIFICATION_PAGE_MAX_CHARS) return false;
+    if (!countsAsCue(t, ALLOW_CUE_RE)) return false;
+    return ALLOW_REASON_RES.some((re) => countsAsCue(t, re));
+  }
+
+  /* ── Fake online stores ──
+     Social-media ads lead to stores selling branded goods at 70-90% off on
+     domains like nike-outlet-sale.shop; they take the card and ship nothing
+     or a counterfeit. Discounts alone are every clearance sale and a cheap
+     TLD alone is every small business, so it takes a shop with implausible
+     discounts AND a famous brand in a domain the brand does not own, or four
+     weaker cues at once: implausible discounts, a throwaway TLD, closing-down
+     urgency and no contact, returns or policy pages. */
+  const SHOP_CUE_RE = /\b(?:add to (?:cart|bag|basket)|buy (?:it )?now|checkout|shop now|in stock)\b/;
+  const PRICE_RE = /(?:[$€£₹]\s?\d[\d,.]*|\b\d[\d,.]*\s?(?:usd|eur|gbp|aud|cad)\b)/g;
+  /* "-75%" badges and "75% off"; never a bare "100% cotton". */
+  const DISCOUNT_RE = /(?:^|[\s(])[-–]\s?(\d{2})\s?%|\b(\d{2})\s?%\s?(?:off|discount)\b/g;
+  const UP_TO_DEEP_RE = /\bup to\s+[7-9]\d\s?%\s?off\b/;
+  const SHOP_URGENCY_RE = /\b(?:closing down|store closing|shop closing|going out of business|liquidation|clearance sale|final (?:clearance|hours|day)|last day|warehouse clearance|everything must go|only today)\b/;
+  const THROWAWAY_TLDS = new Set([
+    "shop", "store", "top", "xyz", "online", "buzz", "icu", "vip", "club", "cfd",
+    "sbs", "lol", "bond", "click", "cyou", "monster", "site", "fun", "live",
+    "best", "boutique", "sale", "life", "today", "space", "website"
+  ]);
+  /* Brands fake stores sell most. Matched as a hyphen/dot token anywhere in
+     the host or as the start/end of the registrable label; never when the
+     label IS the brand (nike.com). */
+  const SHOP_BRANDS = [
+    "nike", "adidas", "puma", "reebok", "newbalance", "converse", "crocs",
+    "ugg", "skechers", "asics", "lululemon", "northface", "patagonia",
+    "rayban", "oakley", "pandora", "swarovski", "rolex", "casio", "fossil",
+    "michaelkors", "katespade", "louisvuitton", "gucci", "prada", "chanel",
+    "dior", "hermes", "balenciaga", "burberry", "moncler", "canadagoose",
+    "lego", "dyson", "yeti", "stanley", "lancome", "sephora", "ikea", "apple",
+    "samsung", "bose", "lenovo", "dewalt", "makita", "milwaukee",
+    "birkenstock", "drmartens", "timberland", "levis", "tommyhilfiger", "ralphlauren",
+    "hugoboss", "underarmour", "fjallraven", "hoka", "salomon"
+  ];
+
+  function brandInShopHost(host) {
+    const norm = normalizeHost(host);
+    if (!norm || isTrustedDomain(norm)) return null;
+    const label = registrable(norm).split(".")[0];
+    const tokens = `-${norm.replace(/[^a-z0-9]/g, "-")}-`;
+    for (const brand of SHOP_BRANDS) {
+      if (label === brand) continue;
+      if (tokens.includes(`-${brand}-`)) return brand;
+      if (brand.length >= 4 && label.length > brand.length &&
+          (label.startsWith(brand) || label.endsWith(brand))) return brand;
+    }
+    return null;
+  }
+
+  function deepDiscountCount(t) {
+    let n = 0;
+    for (const m of t.matchAll(DISCOUNT_RE)) {
+      if (Number(m[1] || m[2]) >= 60) n++;
+    }
+    return n;
+  }
+
+  /**
+   * @param {string}  host            page hostname
+   * @param {string}  text            visible page text
+   * @param {boolean} missingPolicies page has no contact, returns, privacy or terms link
+   * @returns {{ brand: string|null, cues: string[] } | null}
+   */
+  function detectFakeShop(host, text, missingPolicies) {
+    const norm = normalizeHost(host);
+    if (!norm || isLocalhost(norm) || isTrustedDomain(norm)) return null;
+    const t = (text || "").toLowerCase().slice(0, 40000);
+    if (!SHOP_CUE_RE.test(t)) return null;
+    if ((t.match(PRICE_RE) || []).length < 3) return null;
+    if (deepDiscountCount(t) < 2 && !UP_TO_DEEP_RE.test(t)) return null;
+
+    const brand = brandInShopHost(norm) || detectLookalikeDomain(norm, false)?.brand || null;
+    const cues = ["deep-discounts"];
+    if (THROWAWAY_TLDS.has(norm.split(".").pop())) cues.push("throwaway-tld");
+    if (SHOP_URGENCY_RE.test(t)) cues.push("closing-down");
+    if (missingPolicies) cues.push("no-policies");
+    if (brand) cues.push("brand-in-domain");
+
+    return brand || cues.length >= 4 ? { brand, cues } : null;
+  }
+
   function isSensitiveFieldText(value) {
     return SENSITIVE_FIELD_RE.test((value || "").toLowerCase());
   }
@@ -595,7 +714,8 @@
     BRAND_DOMAINS, matchTrustedBrand, analyzeBacklinkRefs,
     detectLookalikeDomain, levenshtein, BRAND_SLDS,
     detectRegionalScam, isSensitiveFieldText, isIndianOfficialHost,
-    hasTollFreeNumber, detectTechSupportScam
+    hasTollFreeNumber, detectTechSupportScam,
+    detectNotificationBait, detectFakeShop, brandInShopHost
   };
 })();
 

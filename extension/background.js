@@ -40,6 +40,37 @@ const BREACHES_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const PWNED_RANGE_URL = "https://api.pwnedpasswords.com/range/";
 const PWNED_RANGE_CACHE_MAX = 50;
 const FEED_ALARM = "phish-feed";
+const ORG_TRUSTED_KEY = "phishclean_org_trusted";
+
+/* ── IT-admin policy (managed storage) ──
+   Set through Chrome/Edge enterprise policy or Firefox policies.json; see
+   managed_schema.json. orgKey puts the install on the organisation's Team
+   plan; trustedDomains are sites the org never wants warnings on. Read-only
+   for the extension, empty on personal installs. */
+async function readPolicy() {
+  try {
+    const p = await chrome.storage.managed.get(["orgKey", "trustedDomains"]);
+    const orgKey = typeof p.orgKey === "string" ? p.orgKey.trim() : "";
+    const trusted = Array.isArray(p.trustedDomains)
+      ? p.trustedDomains
+          .map((d) => String(d).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/[/:].*$/, "").replace(/^\*\./, ""))
+          .filter((d) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d))
+          .slice(0, 500)
+      : [];
+    return { orgKey, trusted };
+  } catch {
+    return { orgKey: "", trusted: [] }; /* no managed storage (personal install, or unsupported) */
+  }
+}
+
+/* Copies the org's trusted domains where the content scripts can read them. */
+async function applyPolicy() {
+  const policy = await readPolicy();
+  await setLocal({ [ORG_TRUSTED_KEY]: policy.trusted });
+  return policy;
+}
+
+const withOrgKey = (body, orgKey) => (orgKey ? { ...body, org_key: orgKey } : body);
 
 /* Service worker initialized */
 
@@ -166,7 +197,7 @@ async function updateBadge(license) {
     if ((license?.needs_account || license?.needs_payment) && license?.last_checked_at) {
       chrome.action.setBadgeText({ text: "!" });
       chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
-      chrome.action.setTitle({ title: "PhishClean — the trial has ended; 3 of 20 checks are running" });
+      chrome.action.setTitle({ title: "PhishClean — the trial has ended; 3 of 22 checks are running" });
       return;
     }
     const days = (await getLocal([ACTIVITY_KEY]))[ACTIVITY_KEY] || {};
@@ -291,11 +322,12 @@ function priceLabels(pricing) {
 async function registerInstall() {
   const installId = await ensureInstallId();
   const version = chrome.runtime.getManifest().version;
+  const { orgKey } = await readPolicy();
   try {
     const r = await fetch(`${API_BASE}/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ install_id: installId, version })
+      body: JSON.stringify(withOrgKey({ install_id: installId, version }, orgKey))
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || "register failed");
@@ -317,6 +349,8 @@ async function registerInstall() {
       protection_level: data.protection_level || "free",
       days_remaining: data.days_remaining || 0,
       pricing: priceLabels(data.pricing),
+      org: data.org || null,
+      managed: !!orgKey,
       last_checked_at: nowIso()
     };
     await setLocal({ [LICENSE_KEY]: license });
@@ -362,6 +396,8 @@ async function maybePromptForAccount(reason) {
   if (data[ACCOUNT_PROMPT_KEY]) return;              /* asked once, that's it */
   if (data[AUTH_KEY]?.accessToken) return;           /* already signed in */
   if (data[LICENSE_KEY]?.has_account) return;
+  if (data[LICENSE_KEY]?.org) return;                /* on an organisation's plan */
+  if ((await readPolicy()).orgKey) return;           /* deployed by IT, plan pending */
   await setLocal({ [ACCOUNT_PROMPT_KEY]: { at: nowIso(), reason } });
   try { await chrome.runtime.openOptionsPage(); } catch { /* no window available */ }
 }
@@ -375,6 +411,7 @@ async function maybePromptForAccount(reason) {
    before this shipped. Once, then never again. */
 async function maybePromptTrialEnded(license) {
   if (!license?.trial_expires_at || license.trial_active || license.is_paid) return;
+  if (license.managed) return; /* IT-deployed: the organisation decides on payment */
   const data = await getLocal([TRIAL_ENDED_PROMPT_KEY]);
   if (data[TRIAL_ENDED_PROMPT_KEY]) return;
   await setLocal({ [TRIAL_ENDED_PROMPT_KEY]: { at: nowIso() } });
@@ -385,12 +422,13 @@ async function refreshStatus() {
   const installId = await ensureInstallId();
   try {
     const auth = await getAuthSession();
+    const { orgKey } = await readPolicy();
     const headers = { "Content-Type": "application/json" };
     if (auth?.accessToken) headers.Authorization = `Bearer ${auth.accessToken}`;
     const r = await fetch(`${API_BASE}/status`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ install_id: installId })
+      body: JSON.stringify(withOrgKey({ install_id: installId }, orgKey))
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || "status failed");
@@ -413,6 +451,8 @@ async function refreshStatus() {
       protection_level: data.protection_level || "free",
       days_remaining: data.days_remaining || 0,
       pricing: priceLabels(data.pricing),
+      org: data.org || null,
+      managed: !!orgKey,
       last_checked_at: nowIso()
     };
     await setLocal({ [LICENSE_KEY]: license });
@@ -490,9 +530,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === "install") {
     await setLocal({ [STATS_KEY]: { blocked: 0 } });
   }
+  const policy = await applyPolicy();
   await registerInstall();
   await setUninstallPing();
-  if (details.reason === "install") {
+  /* A fleet install pushed by IT gets no welcome tab and no account ask:
+     the employee didn't choose it and has nothing to set up. */
+  if (details.reason === "install" && !policy.orgKey) {
     await chrome.runtime.openOptionsPage();
     /* Fallback ask, only if no detection has fired first — see
        maybePromptForAccount, which no-ops once either path has run. */
@@ -518,7 +561,13 @@ chrome.runtime.onInstalled.addListener(async (details) => {
    own updates, and Chrome rejects a self-hosted one for store items. */
 chrome.runtime.onUpdateAvailable.addListener(() => chrome.runtime.reload());
 
+/* An admin can add, change or remove the policy at any time. */
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "managed") applyPolicy().then(() => refreshStatus());
+});
+
 chrome.runtime.onStartup.addListener(async () => {
+  await applyPolicy();
   await setUninstallPing();
   await ensureWeeklyReportAlarm();
   globalThis.PhishCleanFeed?.refresh();
@@ -740,6 +789,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         /* The content script sends its own hostname; the match is local. */
         let listed = false;
         try { listed = !!(await globalThis.PhishCleanFeed?.isListed(msg.host)); } catch { /* no feed yet */ }
+        sendResponse({ listed });
+        break;
+      }
+      case "FEED_CHECK_MANY": {
+        /* Search result badges: one page of result hostnames, matched locally. */
+        const hosts = Array.isArray(msg.hosts) ? msg.hosts.slice(0, 100) : [];
+        const listed = [];
+        try {
+          for (const h of hosts) {
+            if (typeof h === "string" && await globalThis.PhishCleanFeed?.isListed(h)) listed.push(h);
+          }
+        } catch { /* no feed yet */ }
         sendResponse({ listed });
         break;
       }

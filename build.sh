@@ -22,11 +22,13 @@ FILES=(
   contentScript.js
   linkTooltip.js
   breachCheck.js
+  searchBadges.js
   riskEngine.js
   secretScanner.js
   networkHook.js
   lib/publicSuffix.js
   lib/phishFeed.js
+  managed_schema.json
   popup/popup.html
   popup/popup.js
   popup/popup.css
