@@ -10,8 +10,8 @@ Checked on 4 November 2026 by downloading the live package from each store and c
 
 | Store | How it compares with `extension/` here |
 |---|---|
-| Chrome Web Store | Identical, apart from line endings and the `update_url` Chrome adds to the manifest |
-| Edge Add-ons | Identical, apart from line endings and a reformatted manifest |
+| Chrome Web Store | Every packaged file matches, apart from line endings and the `update_url` the store adds to the manifest |
+| Edge Add-ons | Every packaged file matches, apart from line endings and the `update_url` the store adds to a reformatted manifest |
 | Firefox Add-ons | An earlier upload. It has the older icons and branding, and it does not have the digit-swap and subdomain lookalike rules in [`riskEngine.js`](extension/riskEngine.js). Its network requests are the same. The store copy of the manifest is also reformatted |
 
 To check it yourself, unzip a store package and compare it, ignoring line endings because the packages are built on Windows:
@@ -19,6 +19,8 @@ To check it yourself, unzip a store package and compare it, ignoring line ending
 ```sh
 diff -r --strip-trailing-cr unzipped-store-package extension
 ```
+
+That will also list `manifest.firefox.json` and `alert/modal.css`, which are in this folder but not in the Chrome and Edge packages, and the `_metadata` folder the stores add.
 
 ## Verify the privacy claim in five minutes
 
