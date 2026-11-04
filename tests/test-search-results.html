@@ -4,6 +4,14 @@
 <body style="font-family:arial,sans-serif">
   <!-- Minimal copy of Google's result markup (#search > #rso > a > h3). The
        browser test serves it at https://www.google.com/search. -->
+  <!-- Sponsored results (#tads > [data-text-ad] > a > [role=heading]): one
+       scam ad for a brand sign-in leading elsewhere, one through Google's
+       aclk redirect, and the brand's own ad. -->
+  <div id="tads">
+    <div data-text-ad="1"><a href="https://bizaccount-portal.example/signin"><div role="heading" aria-level="3"><span>Amazon Business - Sign In to Your Account</span></div></a></div>
+    <div data-text-ad="1"><a href="https://www.googleadservices.com/pagead/aclk?sa=L&amp;adurl=https://paypal-help-desk.example/"><div role="heading" aria-level="3"><span>PayPal Customer Service - Official Site</span></div></a></div>
+    <div data-text-ad="1"><a href="https://www.amazon.com/business"><div role="heading" aria-level="3"><span>Amazon Business - Sign In</span></div></a></div>
+  </div>
   <div id="search"><div id="rso">
     <div class="g"><a href="https://www.paypal.com/signin"><h3>Log in to your PayPal account</h3></a></div>
     <div class="g"><a href="/url?q=http://login.phish-test.example/&amp;sa=U"><h3>PayPal Login - Secure</h3></a></div>

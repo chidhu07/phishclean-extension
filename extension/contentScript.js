@@ -30,7 +30,9 @@
     ignoreOnce: false,
     lastFingerprint: "",
     lastAlertAt: 0,
-    modalShown: false
+    modalShown: false,
+    clipboard: "",
+    skimmerHost: ""
   };
 
   const host = () => location.hostname.toLowerCase();
@@ -61,6 +63,16 @@
     return state.whitelist.includes(h) ||
       (state.orgTrusted || []).some((d) => h === d || h.endsWith("." + d));
   }
+
+  /* guards.js (Paste Guard, download warnings) runs in this same isolated
+     world and asks about this page through here; the page itself can't see
+     it. */
+  window.PhishCleanPage = {
+    ready: () => stateLoaded(),
+    signals: () => state.signals,
+    proEnabled: () => state.proEnabled,
+    isWhitelisted: () => isWhitelisted()
+  };
 
   async function addToWhitelist() {
     const next = [...new Set([...state.whitelist, host()])];
@@ -305,6 +317,94 @@
     }
   }
 
+  /* FREE: fake CAPTCHA that has you paste a command ("ClickFix") — see
+     detectFakeCaptcha in riskEngine. The clipboard hook only goes into pages
+     that mention a robot check or a keyboard shortcut at all, and the visible
+     text is only read once the page copied something or names a shortcut. */
+  const CAPTCHA_HOOK_GATE_RE = /robot|captcha|verif|human|camera|webcam|microphone|win(?:dows)?\s*(?:key\s*)?\+|ctrl\s*\+\s*v|⊞/i;
+  const CAPTCHA_TEXT_GATE_RE = /win(?:dows)?[\s\S]{0,24}\+|ctrl\s*\+|⌘|⊞|paste|terminal|run (?:dialog|box)|address bar/i;
+  let clipboardHookInjected = false;
+
+  function injectClipboardHook() {
+    if (clipboardHookInjected) return;
+    clipboardHookInjected = true;
+    try {
+      const script = document.createElement("script");
+      script.src = chrome.runtime.getURL("clipboardHook.js");
+      script.dataset.nonce = hookNonce;
+      (document.head || document.documentElement).appendChild(script);
+      script.onload = () => script.remove();
+    } catch { /* hook injection failed — the text-only rule still runs */ }
+  }
+
+  function detectFakeCaptcha() {
+    if (typeof engine.detectFakeCaptcha !== "function") return;
+    if (state.signals.has(engine.SIGNALS.FAKE_CAPTCHA)) return;
+    const raw = (document.body?.textContent || "").slice(0, 30000);
+    if (!state.clipboard && !CAPTCHA_HOOK_GATE_RE.test(raw)) return;
+    injectClipboardHook();
+    if (!engine.isShellCommand(state.clipboard) && !CAPTCHA_TEXT_GATE_RE.test(raw)) return;
+    if (engine.detectFakeCaptcha(document.body?.innerText || "", state.clipboard)) {
+      state.signals.add(engine.SIGNALS.FAKE_CAPTCHA);
+    }
+  }
+
+  /* FREE: fake interview "fix your camera" — see detectFakeInterviewFix in
+     riskEngine. Same clipboard hook as the fake CAPTCHA; the visible text is
+     only read when the page talks about a camera or microphone at all. */
+  const INTERVIEW_TEXT_GATE_RE = /camera|webcam|microphone|\bmic\b/i;
+
+  function detectFakeInterviewFix() {
+    if (typeof engine.detectFakeInterviewFix !== "function") return;
+    if (state.signals.has(engine.SIGNALS.FAKE_INTERVIEW_FIX)) return;
+    const raw = (document.body?.textContent || "").slice(0, 30000);
+    if (!INTERVIEW_TEXT_GATE_RE.test(raw)) return;
+    injectClipboardHook();
+    if (engine.detectFakeInterviewFix(document.body?.innerText || "", state.clipboard)) {
+      state.signals.add(engine.SIGNALS.FAKE_INTERVIEW_FIX);
+    }
+  }
+
+  /* The page's links and buttons, for the checks that ask "is there a file
+     to run here, and does any link go to the real vendor?" */
+  function pageActions() {
+    const actions = [];
+    for (const el of document.querySelectorAll('a[href], button, [role="button"], input[type="button"], input[type="submit"]')) {
+      if (actions.length >= 200) break;
+      const href = el.tagName === "A" && /^(?:https?|blob|data):/i.test(el.href) ? el.href : "";
+      actions.push({
+        href,
+        download: el.tagName === "A" && el.hasAttribute("download"),
+        label: (el.textContent || el.value || el.getAttribute("aria-label") || "").trim().slice(0, 80)
+      });
+    }
+    return actions;
+  }
+
+  /* PRO: fake browser update — see detectFakeBrowserUpdate in riskEngine.
+     The page text is only read when it mentions a browser and an update. */
+  function detectFakeBrowserUpdate() {
+    if (typeof engine.detectFakeBrowserUpdate !== "function") return;
+    if (state.signals.has(engine.SIGNALS.FAKE_BROWSER_UPDATE)) return;
+    const raw = (document.body?.textContent || "").slice(0, 20000);
+    if (!/update|upgrade|out of date|outdated/i.test(raw) || !/browser|chrome|edge|firefox|safari|opera/i.test(raw)) return;
+    if (engine.detectFakeBrowserUpdate(host(), document.body.innerText || "", pageActions())) {
+      state.signals.add(engine.SIGNALS.FAKE_BROWSER_UPDATE);
+    }
+  }
+
+  /* PRO: fake meeting app download — see detectFakeMeetingApp in riskEngine.
+     The page text is only read when it mentions a meeting and a download. */
+  function detectFakeMeetingApp() {
+    if (typeof engine.detectFakeMeetingApp !== "function") return;
+    if (state.signals.has(engine.SIGNALS.FAKE_MEETING_APP)) return;
+    const raw = (document.body?.textContent || "").slice(0, 20000);
+    if (!/download|install|update/i.test(raw) || !/meeting|interview|call|webinar|zoom|teams/i.test(raw)) return;
+    if (engine.detectFakeMeetingApp(host(), document.body.innerText || "", pageActions())) {
+      state.signals.add(engine.SIGNALS.FAKE_MEETING_APP);
+    }
+  }
+
   /* PRO: secret leak scanner — hardcoded API keys in page source + same-origin bundles */
   function applySecretResult(result) {
     if (!result || result.skipped || !result.found) return;
@@ -388,12 +488,32 @@
     const fakeAlert = state.signals.has(engine.SIGNALS.TECH_SUPPORT_SCAM);
     const allowBait = state.signals.has(engine.SIGNALS.NOTIFICATION_BAIT);
     const fakeShop = state.signals.has(engine.SIGNALS.FAKE_SHOP);
-    const title = fakeAlert ? "Fake virus warning"
-      : reported ? "Reported phishing site"
-        : allowBait ? "Don't click Allow"
-          : fakeShop ? "This may be a fake shop"
-            : "Potential Risk Detected";
-    const subtitle = fakeAlert
+    const fakeCaptcha = state.signals.has(engine.SIGNALS.FAKE_CAPTCHA);
+    const fakeUpdate = state.signals.has(engine.SIGNALS.FAKE_BROWSER_UPDATE);
+    const skimmer = state.signals.has(engine.SIGNALS.CARD_SKIMMER);
+    const interviewFix = state.signals.has(engine.SIGNALS.FAKE_INTERVIEW_FIX);
+    const meetingApp = state.signals.has(engine.SIGNALS.FAKE_MEETING_APP);
+    const title = skimmer ? "Your card number was sent to another site"
+      : interviewFix ? "Fake interview: don't run that fix"
+      : fakeCaptcha ? "Don't paste that command"
+      : meetingApp ? "Fake meeting app"
+      : fakeUpdate ? "Fake browser update"
+      : fakeAlert ? "Fake virus warning"
+        : reported ? "Reported phishing site"
+          : allowBait ? "Don't click Allow"
+            : fakeShop ? "This may be a fake shop"
+              : "Potential Risk Detected";
+    const subtitle = skimmer
+      ? `This checkout sent the card number you typed to ${state.skimmerHost}, which is not a payment company. Don't submit the form. If you already paid, call your bank and ask them to block the card.`
+      : interviewFix
+      ? "Real interview platforms never ask you to paste commands to fix your camera. Don't open Terminal, PowerShell or the Run box. Close the tab and stop talking to this recruiter; whatever it copied stays harmless until you run it."
+      : meetingApp
+      ? "Zoom, Teams and Google Meet invitations open in the browser or on the maker's own site. Don't open this file. If you already ran it, disconnect from the internet and treat the computer as compromised."
+      : fakeUpdate
+      ? "Your browser updates itself; no website needs you to download an update. Don't open the file. If you already ran it, disconnect from the internet and run a full malware scan."
+      : fakeCaptcha
+      ?"This is not a real CAPTCHA. Don't press Windows+R, paste or press Enter anywhere this page told you to. Close the tab; whatever it copied stays harmless until you run it."
+      : fakeAlert
       ? "Nothing on your computer is infected. This page is pretending to be a security alert, and the number on it goes to scammers. Don't call it."
       : reported
         ? "This site has been reported for stealing passwords or payment details."
@@ -406,7 +526,11 @@
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     const licenseNote = reported
       ? "Caught by the reported-phishing list, which stays free. New phishing pages often go unreported for days; the lookalike-domain and fake-login checks that catch those are paused on this install."
-      : "Caught by the checks that never expire. Nineteen more &mdash; lookalike domains, fake brand logins, fake shops, fake virus warnings, leaked passwords &mdash; are paused on this install.";
+      : interviewFix
+      ? "Caught by the fake interview check, which stays free. Twenty-two more &mdash; fake meeting apps, lookalike domains, fake brand logins, leaked passwords &mdash; and the coding-test repo check are paused on this install."
+      : fakeCaptcha
+      ? "Caught by the fake CAPTCHA check, which stays free. Twenty-two more &mdash; lookalike domains, fake brand logins, fake shops, fake virus warnings, leaked passwords &mdash; are paused on this install."
+      : "Caught by the checks that never expire. Twenty-two more &mdash; lookalike domains, fake brand logins, fake shops, fake virus warnings, leaked passwords &mdash; are paused on this install.";
 
     shadow.innerHTML = `
       <style>
@@ -489,10 +613,14 @@
             <button class="btn btn-back" id="btn-back">Go Back</button>
             <button class="btn btn-ignore" id="btn-ignore">Ignore Once</button>
             <button class="btn btn-whitelist" id="btn-wl">Trust this domain</button>
-            <button class="btn btn-upgrade ${state.proEnabled ? "hidden" : ""}" id="btn-up">Restore the other 19 checks</button>
+            <button class="btn btn-upgrade ${state.proEnabled ? "hidden" : ""}" id="btn-up">Restore the other 22 checks</button>
           </div>
 
-          ${fakeAlert
+          ${interviewFix || meetingApp
+            ? `<a class="help-link" id="btn-help" href="https://www.phishclean.com/blog/fake-job-interview-coding-test-malware?utm_source=extension&amp;utm_medium=warning#already-ran" target="_blank" rel="noopener">${meetingApp ? "Already opened the file?" : "Already ran the command?"} What to do now &rarr;</a>`
+            : fakeCaptcha || fakeUpdate
+            ? `<a class="help-link" id="btn-help" href="https://www.phishclean.com/blog/captcha-told-me-to-press-win-r-is-it-a-virus?utm_source=extension&amp;utm_medium=warning#already-ran" target="_blank" rel="noopener">${fakeUpdate ? "Already opened the file?" : "Already pasted it and pressed Enter?"} What to do now &rarr;</a>`
+            : fakeAlert
             ? `<a class="help-link" id="btn-help" href="https://www.phishclean.com/blog/how-to-remove-fake-virus-popup?utm_source=extension&amp;utm_medium=warning#already-called" target="_blank" rel="noopener">Already called the number or let someone onto your computer? What to do now &rarr;</a>`
             : `<a class="help-link" id="btn-help" href="https://www.phishclean.com/help/clicked-a-phishing-link?utm_source=extension&amp;utm_medium=warning" target="_blank" rel="noopener">Already typed a password or card details here? What to do now &rarr;</a>`}
 
@@ -627,17 +755,42 @@
       state.signals.add(engine.SIGNALS.AUTH_HEADER_THIRD_PARTY);
       maybeAlert();
     }
+    /* The hook saw the typed card number leave the page; only the host
+       comes with the message. It ends up in the warning, so it must be a
+       plain hostname whatever the page posted. */
+    if (event.data?.type === "CARD_SENT" && /^[a-z0-9.-]{1,253}$/i.test(event.data.to || "")) {
+      if (!engine.isExpectedCardDestination(host(), event.data.to)) {
+        state.skimmerHost = event.data.to.toLowerCase();
+        state.signals.add(engine.SIGNALS.CARD_SKIMMER);
+        maybeAlert();
+      }
+    }
+    /* The fake CAPTCHA usually copies on the checkbox click and shows the
+       "press Windows+R" steps a moment later, often by unhiding them, which
+       the DOM observer (child changes only) does not see. Check again then. */
+    if (event.data?.type === "CLIPBOARD_WRITE" && typeof event.data.text === "string") {
+      state.clipboard = event.data.text;
+      const check = () => {
+        if (state.modalShown) return;
+        try { detectFakeCaptcha(); } catch { /* skip */ }
+        try { detectFakeInterviewFix(); } catch { /* skip */ }
+        maybeAlert();
+      };
+      check();
+      setTimeout(check, 1000);
+      setTimeout(check, 3000);
+    }
   });
 
   /* ── detectors ──
      FREE runs on every page forever, with or without an account. PRO runs
-     during the 15-day trial and on a paid plan. The split mirrors
+     during the 7-day trial and on a paid plan. The split mirrors
      FREE_SIGNALS in riskEngine.js, which already drops pro signals from the
      score when proEnabled is false — running the pro detectors for a free
      user would burn the work and discard the result, and two of them
      (detectTokenStorage, detectBacklinkImpersonation) are the expensive
      ones. */
-  const FREE_DETECTORS = [detectPasswordFields, detectDomainMismatch];
+  const FREE_DETECTORS = [detectPasswordFields, detectDomainMismatch, detectFakeCaptcha, detectFakeInterviewFix];
 
   const PRO_DETECTORS = [
     detectHiddenIframes, detectJwtInUrl, detectSuspiciousQuery,
@@ -645,7 +798,7 @@
     detectVisualAnomalies, detectBacklinkImpersonation, detectTokenStorage,
     detectHttpPassword, detectHttpFromHttps, detectLookalikeDomain,
     detectRegionalScam, detectTechSupportScam, detectNotificationBait,
-    detectFakeShop
+    detectFakeShop, detectFakeBrowserUpdate, detectFakeMeetingApp
   ];
 
   function runSyncDetectors() {
@@ -670,6 +823,8 @@
       lastUrl = location.href;
       if (engine.isTrustedDomain(host())) return;
       state.signals = new Set();
+      state.clipboard = "";
+      state.skimmerHost = "";
       state.modalShown = false;
       state.lastFingerprint = "";
       state.ignoreOnce = sessionStorage.getItem(`phishclean_ignore_${host()}`) === "1";

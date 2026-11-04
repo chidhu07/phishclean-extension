@@ -197,7 +197,7 @@ async function updateBadge(license) {
     if ((license?.needs_account || license?.needs_payment) && license?.last_checked_at) {
       chrome.action.setBadgeText({ text: "!" });
       chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
-      chrome.action.setTitle({ title: "PhishClean — the trial has ended; 3 of 22 checks are running" });
+      chrome.action.setTitle({ title: "PhishClean — the trial has ended; 5 of 27 checks are running" });
       return;
     }
     const days = (await getLocal([ACTIVITY_KEY]))[ACTIVITY_KEY] || {};

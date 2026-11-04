@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Chrome</title>
+<style>body{font-family:sans-serif;background:#fff;color:#202124;text-align:center;padding-top:60px}.btn{display:inline-block;background:#1a73e8;color:#fff;padding:12px 24px;border-radius:4px;text-decoration:none;border:0;font-size:15px}</style>
+</head>
+<body>
+  <!-- Fake browser update, as injected into hacked sites: the page is
+       replaced by an update screen whose button downloads a script.
+       ?mode=button uses a scripted button with no link at all. The download
+       points at a reserved .example host and is never fetched. -->
+  <h1>An error occurred in your browser</h1>
+  <p>Your Chrome is out of date. Update Chrome to continue to this page.</p>
+  <p>Chrome update required: version 128 is no longer supported.</p>
+  <div id="action"></div>
+<script>
+  const box = document.getElementById("action");
+  if (new URLSearchParams(location.search).get("mode") === "button") {
+    box.innerHTML = '<button class="btn" id="go">Update Chrome</button>';
+    document.getElementById("go").onclick = () => {};
+  } else {
+    box.innerHTML = '<a class="btn" href="https://update-cdn.example/download/Chrome.Update.js">Update Chrome</a>';
+  }
+</script>
+</body>
+</html>

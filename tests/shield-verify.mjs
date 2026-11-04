@@ -70,7 +70,7 @@ try {
   };
   const modalShown = async (page) => (await page.locator("#phishclean-root").count()) === 1;
   const badges = (page) => page.$$eval(".phishclean-search-badge", (els) =>
-    els.map((el) => ({ level: el.dataset.level, title: el.closest("a")?.textContent.trim() })));
+    els.map((el) => ({ level: el.dataset.level, label: el.textContent.trim(), title: el.closest("a")?.textContent.trim() })));
 
   console.log("\n1. Search result badges");
   await setLicense(TRIAL);
@@ -82,6 +82,9 @@ try {
   ok("lookalike result: amber", levelOf("PayPal account verification") === "caution");
   ok("brand-prefixed real business: no badge", levelOf("Applebee") === null);
   ok("unknown site: no badge", levelOf("Small Bakery") === null);
+  ok("scam ad for a brand sign-in: amber 'Not Amazon'", marks.some((m) => m.title?.includes("Sign In to Your Account") && m.level === "caution" && m.label.includes("Not Amazon")), JSON.stringify(marks));
+  ok("ad through Google's aclk redirect is read and marked", levelOf("PayPal Customer Service") === "caution");
+  ok("the brand's own ad: green", marks.some((m) => m.title?.endsWith("Amazon Business - Sign In") && m.level === "safe"));
   ok("no full-page warning on the results page", !(await modalShown(page)));
   await page.screenshot({ path: join(SHOTS, "search-badges.png") });
 
@@ -94,7 +97,7 @@ try {
   await page.waitForTimeout(1200);
   marks = await badges(page);
   ok("results loaded later are marked too", levelOf("More results") === "danger", JSON.stringify(marks));
-  ok("each result gets one badge", marks.length === 4, String(marks.length));
+  ok("each result gets one badge", marks.length === 7, String(marks.length));
   await page.close();
 
   await setLicense(FREE);

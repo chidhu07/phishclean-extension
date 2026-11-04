@@ -1,8 +1,15 @@
 /* Build the reported-phishing feed the extension matches against locally.
 
-   Source: Phishing.Database (MIT, github.com/Phishing-Database/Phishing.Database),
-   the "ACTIVE" domain list — hosts that were reported as phishing and still
-   resolve. About 390k entries.
+   Sources:
+   - Phishing.Database (MIT, github.com/Phishing-Database/Phishing.Database),
+     the "ACTIVE" domain list — hosts that were reported as phishing and still
+     resolve. About 390k entries. It stopped updating on 2 Oct 2026, hence:
+   - PhishTank's online-valid list (verified phishing URLs still online, CC BY-SA
+     2.5; because the feed includes it, the feed file is CC BY-SA 2.5 too). Read
+     from the snapshot .github/workflows/phishtank.yml stores every 6 hours at
+     /api/contact?mode=phishtank, never from PhishTank directly: it allows only a
+     few keyless downloads a day and the site rebuilds on every deploy. If the
+     snapshot is missing the feed is built from Phishing.Database alone.
 
    The raw list cannot be used as is. It contains real sites (sites.google.com,
    gravatar.com, pastebin.com, telegra.ph, mercadolibre.*): someone reported a
@@ -43,6 +50,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = resolve(ROOT, "public/feeds/phish-v1.bin");
 const LIVE_URL = "https://www.phishclean.com/feeds/phish-v1.bin";
+const PHISHTANK_SNAPSHOT_URL = "https://www.phishclean.com/api/contact?mode=phishtank";
 const SOURCE_URL = "https://raw.githubusercontent.com/Phishing-Database/Phishing.Database/master/phishing-domains-ACTIVE.txt";
 const PSL_URL = "https://publicsuffix.org/list/public_suffix_list.dat";
 const TRANCO_ID_URL = "https://tranco-list.eu/top-1m-id";
@@ -175,6 +183,24 @@ async function build({ stats }) {
       const reg = registrable(host) || host;
       dropped.set(reg, (dropped.get(reg) || 0) + 1);
     }
+  }
+
+  /* PhishTank hosts go through the same filter: a phishing page on a popular
+     platform must not block the platform. */
+  let ptAdded = 0, ptHosts = 0;
+  try {
+    const snap = JSON.parse(await text(PHISHTANK_SNAPSHOT_URL));
+    for (const h of snap.hosts || []) {
+      const host = normalizeHost(h);
+      if (!host) continue;
+      ptHosts++;
+      if (kept.has(host)) continue;
+      const c = classify(host, registrable, top);
+      if (c) { kept.set(host, c.kind); ptAdded++; }
+    }
+    console.log(`phish feed: PhishTank snapshot from ${snap.fetchedAt}: ${ptHosts} hosts, ${ptAdded} added`);
+  } catch (err) {
+    console.warn(`phish feed: no PhishTank snapshot (${err.message}); Phishing.Database only`);
   }
 
   const wildcards = [...kept.values()].filter((k) => k === "wildcard").length;

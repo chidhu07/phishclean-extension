@@ -4,8 +4,8 @@
 function drawPhishCleanLogo(doc, x, y, size) {
   var s = size / 36; // scale factor (logo viewBox is 32x36)
 
-  // Shield outer — dark
-  doc.setFillColor(17, 17, 17);
+  // Shield outer — brand navy (scripts/brand-icon.mjs)
+  doc.setFillColor(30, 45, 75);
   doc.triangle(
     x + 16 * s, y + 1.5 * s,
     x + 3 * s,  y + 7 * s,
@@ -24,7 +24,7 @@ function drawPhishCleanLogo(doc, x, y, size) {
   var ox = x;
   var oy = y;
 
-  doc.setFillColor(17, 17, 17);
+  doc.setFillColor(30, 45, 75);
   var outerPts = [
     [16, 1.5], [29, 7], [29, 12], [29, 17.5],
     [29, 21], [27.5, 25], [25, 28.5], [22, 31.5],
@@ -44,8 +44,8 @@ function drawPhishCleanLogo(doc, x, y, size) {
   }
   doc.lines(lines, startX, startY, [1, 1], "F", true);
 
-  // Shield inner — slightly lighter
-  doc.setFillColor(26, 26, 26);
+  // Shield inner — the darker navy face
+  doc.setFillColor(22, 35, 61);
   var innerPts = [
     [16, 4.5], [26, 9], [26, 13], [26, 17.5],
     [26, 20.5], [24.5, 24], [22.5, 27], [20, 29.5],

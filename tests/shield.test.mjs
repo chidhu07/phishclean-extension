@@ -83,7 +83,7 @@ test("both new signals alert on their own and are paid checks", () => {
     assert.equal(engine.scoreSignals(new Set([s]), true).shouldAlert, true, s);
     assert.equal(engine.scoreSignals(new Set([s]), false).shouldAlert, false, s);
   }
-  assert.equal(Object.keys(S).length, 22, "signal count is quoted in the extension copy");
+  assert.equal(Object.keys(S).length, 27, "signal count is quoted in the extension copy");
 });
 
 /* ── Search badges ── */

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Account verification</title>
+</head>
+<body>
+  <!-- Paste Guard and download warnings (tests/guards-verify.mjs).
+       Served on several hosts: what warns depends on the host. -->
+  <h1>Verify your account</h1>
+  <form action="/verify" method="post">
+    <label>Email <input id="email" type="email" name="email" /></label>
+    <label>Password <input id="password" type="password" name="password" /></label>
+    <label>Card number <input id="card" type="text" name="card" autocomplete="cc-number" /></label>
+    <label>Notes <textarea id="notes"></textarea></label>
+    <div id="rich" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>
+    <button type="submit">Continue</button>
+  </form>
+
+  <h2>Documents</h2>
+  <a id="disguised" href="/files/invoice.pdf.exe">invoice.pdf</a>
+  <a id="script" href="/files/fix.hta">Run the account fix</a>
+  <a id="program" href="/files/ZoomInstaller.exe">Download the meeting app</a>
+  <a id="pdf" href="/files/statement.pdf">Statement (PDF)</a>
+  <button id="smuggle" type="button">Open secure document</button>
+
+  <script>
+    /* HTML smuggling: build the file in the page and click a download link. */
+    document.getElementById("smuggle").addEventListener("click", () => {
+      const blob = new Blob(["MZ fake program bytes"], { type: "application/octet-stream" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "Secure_Document.iso";
+      document.body.appendChild(a);
+      a.click();
+    });
+  </script>
+</body>
+</html>

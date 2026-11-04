@@ -25,7 +25,12 @@
     KNOWN_PHISHING: "KNOWN_PHISHING",
     TECH_SUPPORT_SCAM: "TECH_SUPPORT_SCAM",
     NOTIFICATION_BAIT: "NOTIFICATION_BAIT",
-    FAKE_SHOP: "FAKE_SHOP"
+    FAKE_SHOP: "FAKE_SHOP",
+    FAKE_CAPTCHA: "FAKE_CAPTCHA",
+    FAKE_BROWSER_UPDATE: "FAKE_BROWSER_UPDATE",
+    CARD_SKIMMER: "CARD_SKIMMER",
+    FAKE_INTERVIEW_FIX: "FAKE_INTERVIEW_FIX",
+    FAKE_MEETING_APP: "FAKE_MEETING_APP"
   };
 
   const WEIGHTS = {
@@ -58,15 +63,34 @@
     NOTIFICATION_BAIT: 45,
     /* Already requires a shop, implausible discounts and a brand name in a
        domain the brand does not own (or four weaker cues together). */
-    FAKE_SHOP: 45
+    FAKE_SHOP: 45,
+    /* Already requires a copied command next to a robot check or a Run-box
+       shortcut, or all three text cues on a short page. */
+    FAKE_CAPTCHA: 60,
+    /* Already requires an "update your browser" message and a file to run
+       (or an update button with no link to the real browser maker) on a
+       short page that is not the browser maker's own. */
+    FAKE_BROWSER_UPDATE: 50,
+    /* The card number typed into this page left it for a host that is not a
+       payment company, the site itself or a well-known platform. */
+    CARD_SKIMMER: 50,
+    /* Already requires a camera or microphone error inside an interview or
+       meeting, plus a copied command or the paste steps on a short page. */
+    FAKE_INTERVIEW_FIX: 60,
+    /* Already requires "download the meeting app to join", a file to run
+       (or a download button) and a site that is not the meeting company's. */
+    FAKE_MEETING_APP: 50
   };
 
   const THRESHOLD = 40;
 
   /* Free tier only gets basic signals; Pro unlocks the rest. The reported-
      phishing list is free: holding back a warning about a page already known
-     to be phishing would only hurt the user it failed. */
-  const FREE_SIGNALS = new Set([SIGNALS.PASSWORD_FIELD, SIGNALS.DOMAIN_MISMATCH, SIGNALS.KNOWN_PHISHING]);
+     to be phishing would only hurt the user it failed. So is the fake
+     CAPTCHA check: the next step on that page installs malware, and on hacked
+     sites it runs on domains no list or lookalike check would flag. The fake
+     interview "camera fix" is the same trick aimed at job seekers. */
+  const FREE_SIGNALS = new Set([SIGNALS.PASSWORD_FIELD, SIGNALS.DOMAIN_MISMATCH, SIGNALS.KNOWN_PHISHING, SIGNALS.FAKE_CAPTCHA, SIGNALS.FAKE_INTERVIEW_FIX]);
 
   const REASON_TEXT = {
     PASSWORD_FIELD: "This page contains a password field.",
@@ -90,6 +114,11 @@
     TECH_SUPPORT_SCAM: "This page imitates a virus or security warning and tells you to call a support number. Real security software never does that; the number goes to scammers.",
     NOTIFICATION_BAIT: "This page tells you to click \"Allow\" to prove you are human, play a video or start a download. That button only lets the site send you notifications, which spam sites fill with fake virus alerts, scam offers and adult ads.",
     FAKE_SHOP: "This looks like a fake online store: prices far below what the real product costs, on a site that is not the brand's own. Fake stores take the payment and send nothing, or a counterfeit.",
+    FAKE_CAPTCHA: "This page tells you to press Windows+R (or open a terminal) and paste something to prove you are human. No real CAPTCHA does that. What it copied to your clipboard is a command that installs password-stealing malware.",
+    FAKE_BROWSER_UPDATE: "This page says your browser is out of date and offers a file to install. Browsers update themselves; a website asking you to download an update is how hacked sites spread malware.",
+    CARD_SKIMMER: "This page sent the card number you typed to another site that is not a payment company. That is how card skimmers on hacked shops steal cards.",
+    FAKE_INTERVIEW_FIX: "This interview or meeting page says your camera or microphone is broken and tells you to paste a fix into Terminal, PowerShell or the Run box. No real interview platform does that. Fake job interviews use it to install malware that steals crypto wallets, passwords and work logins.",
+    FAKE_MEETING_APP: "This page says you need to download a meeting app to join an interview or call, and the file does not come from the company that makes the app. Fake meeting apps are how fake recruiters get malware onto a laptop.",
     REGIONAL_SCAM: "This page follows a known scam script (fake traffic e-challan, KYC update, electricity disconnection, held parcel, tax refund or reward points) and asks for card, UPI or OTP details on a site that is not the real bank or government service."
   };
 
@@ -181,7 +210,14 @@
     });
     ["paypal", "apple", "google", "microsoft", "amazon", "netflix", "facebook",
      "instagram", "whatsapp", "github", "linkedin", "outlook", "office365",
-     "wellsfargo", "citibank", "coinbase", "binance", "metamask", "dhl", "fedex"]
+     "wellsfargo", "citibank", "coinbase", "binance", "metamask", "dhl", "fedex",
+     /* Fake recruiters and trojanized developer tools: exchanges and wallets,
+        code hosts and package registries, and the scheduling and Terraform
+        sites their lures copy (hashicorp-terraform.io, calendly-meet.com).
+        Short or dictionary-like names (zoom, teams, ledger, kraken, okx)
+        stay out: one edit away from them is an ordinary word or brand. */
+     "bybit", "kucoin", "upbit", "trezor", "trustwallet", "gitlab", "bitbucket",
+     "npmjs", "terraform", "hashicorp", "calendly"]
       .forEach((b) => set.add(b));
     return set;
   })();
@@ -244,6 +280,23 @@
     return prev[b.length];
   }
 
+  /* ASCII homoglyphs: digits and letter pairs that read as a brand's letters
+     at a glance (g00gle, paypa1, rnicrosoft, vvellsfargo). "1" is tried as
+     both "l" and "i" (paypa1, m1crosoft). Only labels that mix letters with
+     these characters change, so plain words and numbers are left alone. */
+  const HOMOGLYPH_SWAPS = [[/rn/g, "m"], [/vv/g, "w"], [/0/g, "o"], [/3/g, "e"], [/5/g, "s"], [/\$/g, "s"]];
+  function deHomoglyph(label) {
+    if (!/[a-z]/.test(label) || !/[0-9]|rn|vv/.test(label)) return [];
+    let base = label;
+    for (const [re, to] of HOMOGLYPH_SWAPS) base = base.replace(re, to);
+    const out = new Set([base.replace(/1/g, "l"), base.replace(/1/g, "i")]);
+    out.delete(label);
+    return [...out];
+  }
+
+  /* TLD-like labels that make "paypal.com.verify-account.ru" read as PayPal. */
+  const BRAND_TLD_LABELS = new Set(["com", "net", "org", "co", "io", "app", "us", "uk", "in", "de", "fr", "ca", "au"]);
+
   /* Does the host contain an IDN/punycode label (potential homograph)? */
   function hasPunycodeLabel(host) {
     return (host || "").toLowerCase().split(".").some((l) => l.startsWith("xn--"));
@@ -267,6 +320,35 @@
        exist, so we only flag when credentials are being collected. */
     if (hasPunycodeLabel(norm) && hasPassword) {
       return { lookalike: true, brand: null, kind: "homograph" };
+    }
+
+    /* A hyphenated label is read word by word, so each word is checked on
+       its own: paypa1-login, micros0ft-365-login, secure-app1e-id. */
+    const words = sld.split("-").filter((w) => w.length >= 4);
+    for (const word of words) {
+      for (const v of deHomoglyph(word)) {
+        if (BRAND_SLDS.has(v)) return { lookalike: true, brand: v, kind: "typosquat" };
+      }
+      /* One slip in a long brand name (linkedln-jobs). Short names stay out:
+         one letter from them is usually an ordinary word. */
+      if (words.length > 1 && word.length >= 7) {
+        for (const brand of BRAND_SLDS) {
+          if (brand.length >= 8 && word !== brand && levenshtein(word, brand, 1) <= 1) {
+            return { lookalike: true, brand, kind: "typosquat" };
+          }
+        }
+      }
+    }
+
+    /* The brand's own domain written as subdomains of someone else's:
+       paypal.com.account-verify.ru, login-microsoft.com.verify-user.top. */
+    const labels = norm.split(".");
+    const regLabels = reg.split(".").length;
+    for (let i = 0; i < labels.length - regLabels - 1; i++) {
+      if (!BRAND_TLD_LABELS.has(labels[i + 1])) continue;
+      const parts = labels[i].split("-").flatMap((p) => [p, ...deHomoglyph(p)]);
+      const brand = parts.find((p) => BRAND_SLDS.has(p) && p !== sld);
+      if (brand) return { lookalike: true, brand, kind: "brand-embedded" };
     }
 
     for (const brand of BRAND_SLDS) {
@@ -504,6 +586,266 @@
     return brand || cues.length >= 4 ? { brand, cues } : null;
   }
 
+  /* ── Fake CAPTCHA ("ClickFix") ──
+     A fake robot check copies a command to the clipboard and tells you to
+     press Windows+R (or open Terminal, or the File Explorer address bar),
+     paste and press Enter. The command installs a password stealer. Hacked
+     sites show these on their own domains, so this is a page check, not a
+     domain check. Install docs also copy commands and say "paste this in a
+     terminal", so a copied command only counts next to a robot-check cue, or
+     next to a Run-box shortcut on a short page. Without a copied command a
+     short page needs all three: the shortcut, the paste and the robot check.
+     Articles about the trick are long or quote the steps. */
+  const KEY_SEP = String.raw`\s*(?:\+|and|&)?\s*["'“]?`;
+  const RUN_DIALOG_RES = [
+    new RegExp(String.raw`(?:\bwin(?:dows)?(?:\s+(?:logo\s+)?(?:key|button))?|⊞)${KEY_SEP}[rx]\b`),
+    /\brun\s+(?:dialog|box|window|command box)\b/,
+    /\bfile explorer\b[^.]{0,80}\baddress bar\b/
+  ];
+  const TERMINAL_RES = [
+    /\bopen\s+(?:the\s+|a\s+)?terminal\b/,
+    new RegExp(String.raw`(?:\bcmd|\bcommand|⌘)${KEY_SEP}space\b`)
+  ];
+  const PASTE_RES = [
+    new RegExp(String.raw`(?:\bctrl|\bcontrol|\bcmd|\bcommand|⌘)${KEY_SEP}v\b`),
+    /\bpaste\b/
+  ];
+  const ROBOT_CHECK_RES = [
+    /\bnot\s+a\s+(?:robot|bot)\b/,
+    /\b(?:re)?captcha\b/,
+    /\b(?:verify|verifying|confirm|prove)\s+(?:that\s+)?(?:you\s+are|you.?re)\s+(?:a\s+)?(?:human|not a (?:robot|bot))/,
+    /\b(?:human|robot|bot)\s+(?:verification|check)\b/,
+    /\bverification\s+(?:id|steps?)\b/
+  ];
+  /* What the copied text runs: Windows shells and built-in tools that fetch
+     or launch code, or a download piped into a shell on macOS and Linux. */
+  const SHELL_COMMAND_RE = /\b(?:powershell|pwsh|mshta|cmd(?:\.exe)?\s+\/[ck]|curl|wget|iwr|irm|iex|invoke-(?:webrequest|restmethod|expression)|start-process|bitsadmin|certutil|rundll32|regsvr32|msiexec|conhost|wscript|cscript|finger|osascript|(?:ba|z)?sh\s+-c|base64\s+(?:-d|--decode))\b/;
+  const CAPTCHA_PAGE_MAX_CHARS = 6000;
+
+  function isShellCommand(text) {
+    return SHELL_COMMAND_RE.test((text || "").toLowerCase());
+  }
+
+  /**
+   * @param {string} text       visible page text
+   * @param {string} clipboard  last text the page itself wrote to the clipboard
+   */
+  function detectFakeCaptcha(text, clipboard) {
+    const t = (text || "").toLowerCase().replace(/\s+/g, " ");
+    const clip = (clipboard || "").toLowerCase().slice(0, 4000);
+    const any = (res) => res.some((re) => countsAsCue(t, re));
+    const short = t.length <= CAPTCHA_PAGE_MAX_CHARS;
+    const runBox = any(RUN_DIALOG_RES);
+
+    if (clip && SHELL_COMMAND_RE.test(clip)) {
+      /* The decoy comment these commands end with ("# I am not a robot -
+         reCAPTCHA Verification ID: 4823") is the scam talking. URLs and
+         hostnames are left out: a CAPTCHA API call names its own host. */
+      const words = clip.replace(/\S*[./]\S*/g, " ");
+      if (ROBOT_CHECK_RES.some((re) => re.test(words))) return true;
+      const robot = any(ROBOT_CHECK_RES);
+      return (robot && runBox) || (short && (robot || runBox));
+    }
+    if (!short) return false;
+    return (runBox || any(TERMINAL_RES)) && any(PASTE_RES) && any(ROBOT_CHECK_RES);
+  }
+
+  /* ── Fake interview "camera fix" ──
+     The fake-recruiter version of the same trick (Sekoia named it ClickFake
+     Interview): a video interview site says your camera or microphone is
+     blocked and tells you to paste a "fix" into Terminal, PowerShell or the
+     Run box. It installs a backdoor aimed at the wallets, passwords and cloud
+     keys on the candidate's laptop. Help pages for real camera trouble print
+     terminal commands too, so the device error only counts inside an
+     interview or meeting, and then needs a copied download command, or the
+     paste steps on a short page. */
+  const DEVICE_ERROR_RES = [
+    /\b(?:camera|webcam|microphone|mic|audio|video)\s+(?:access\s+)?(?:is\s+|was\s+|has been\s+)?(?:blocked|not working|not detected|not found|unavailable|error|failed|denied|disabled)/,
+    /\b(?:camera|webcam|microphone|audio|video)\s+(?:driver|permission)s?\s+(?:error|issue|problem|update|is outdated|out of date|missing|failed)/,
+    /\b(?:fix|repair|update|reset|reinstall)\s+(?:your\s+|the\s+)?(?:camera|webcam|microphone|audio|video)(?:\s+drivers?)?\b/,
+    /\b(?:could not|couldn.?t|can.?t|cannot|unable to|failed to)\s+(?:access|start|detect|connect to|find)\s+(?:your\s+|the\s+)?(?:camera|webcam|microphone)/
+  ];
+  const MEETING_CONTEXT_RE = /\b(?:interview|interviewer|recruiter|recruitment|candidate|hiring manager|video (?:call|meeting|interview|question|response)|meeting room|(?:join|joining|enter|start)\s+(?:the\s+|your\s+|this\s+)?(?:meeting|call|interview|session))\b/;
+  const FIX_STEP_RES = [...RUN_DIALOG_RES, ...TERMINAL_RES, /\b(?:open|launch|run)\s+(?:the\s+|a\s+)?(?:command prompt|powershell|cmd|terminal)\b/];
+
+  /**
+   * @param {string} text       visible page text
+   * @param {string} clipboard  last text the page itself wrote to the clipboard
+   */
+  function detectFakeInterviewFix(text, clipboard) {
+    const t = (text || "").toLowerCase().replace(/\s+/g, " ");
+    const any = (res) => res.some((re) => countsAsCue(t, re));
+    if (!any(DEVICE_ERROR_RES) || !countsAsCue(t, MEETING_CONTEXT_RE)) return false;
+    const short = t.length <= CAPTCHA_PAGE_MAX_CHARS;
+    const steps = any(FIX_STEP_RES);
+    if (isShellCommand(clipboard)) return short || steps;
+    return short && steps && any(PASTE_RES);
+  }
+
+  /* ── Fake browser update ──
+     The classic payload on hacked WordPress sites: the page is replaced by
+     "Your Chrome is out of date — Update Chrome" and the button downloads a
+     script or installer that loads malware. Real browsers update themselves
+     and never ask a website to deliver the update. Legitimate "unsupported
+     browser" notices link to the browser maker's site, so a link there
+     clears the page; a file to run, or an update button that goes nowhere
+     real, does not. */
+  const BROWSER_VENDOR_DOMAINS = [
+    "google.com", "mozilla.org", "firefox.com", "microsoft.com", "apple.com",
+    "opera.com", "brave.com", "vivaldi.com", "duckduckgo.com"
+  ];
+  const BROWSER_NAMES = String.raw`(?:web browser|browser|google chrome|chrome|microsoft edge|edge|firefox|safari|opera)`;
+  const UPDATE_CUE_RES = [
+    new RegExp(String.raw`\b(?:your|this)\s+${BROWSER_NAMES}\s+(?:version\s+)?(?:is|seems|appears to be)\s+(?:out of date|outdated|too old|obsolete|not up to date)`),
+    new RegExp(String.raw`\b(?:update|upgrade)\s+(?:your\s+)?${BROWSER_NAMES}\s+(?:now|immediately|to (?:continue|view|access|load|see|display))`),
+    new RegExp(String.raw`\b${BROWSER_NAMES}\s+(?:update|upgrade)\s+(?:is\s+)?(?:required|needed|necessary|available)\b`),
+    /\bcritical\s+(?:browser|security)\s+update\b/
+  ];
+  const UPDATE_BUTTON_RE = /\b(?:update|upgrade|install|download)\s+(?:now|update|the update|chrome|google chrome|edge|firefox|browser|your browser)\b/;
+  const EXECUTABLE_PATH_RE = /\.(?:exe|msi|msix|appx|zip|rar|7z|js|jse|vbs|vbe|wsf|hta|bat|cmd|scr|ps1|lnk|iso|img|apk|dmg|pkg)$/i;
+  const UPDATE_PAGE_MAX_CHARS = 4000;
+
+  function isBrowserVendor(host) {
+    const h = normalizeHost(host);
+    return BROWSER_VENDOR_DOMAINS.some((d) => h === d || h.endsWith("." + d));
+  }
+
+  /**
+   * @param {string} host    page hostname
+   * @param {string} text    visible page text
+   * @param {{href: string, download: boolean, label: string}[]} actions
+   *        the page's links and buttons (href is "" for a button)
+   */
+  function detectFakeBrowserUpdate(host, text, actions) {
+    const norm = normalizeHost(host);
+    if (!norm || isLocalhost(norm) || isTrustedDomain(norm) || isBrowserVendor(norm)) return false;
+    const t = (text || "").toLowerCase().replace(/\s+/g, " ");
+    if (t.length > UPDATE_PAGE_MAX_CHARS) return false;
+    if (!UPDATE_CUE_RES.some((re) => countsAsCue(t, re))) return false;
+
+    let vendorLink = false, file = false, updateButton = false;
+    for (const a of actions || []) {
+      const label = (a.label || "").toLowerCase();
+      if (a.href) {
+        let u = null;
+        try { u = new URL(a.href); } catch { /* not a URL */ }
+        if (u && isBrowserVendor(u.hostname)) { vendorLink = true; continue; }
+        if (a.download || (u && EXECUTABLE_PATH_RE.test(u.pathname))) { file = true; continue; }
+      }
+      if (UPDATE_BUTTON_RE.test(label)) updateButton = true;
+    }
+    return file || (updateButton && !vendorLink);
+  }
+
+  /* ── Fake meeting app ──
+     The other door fake recruiters use: "to join the interview, download our
+     meeting client" (or a "Zoom SDK update"), served from a lookalike site.
+     Real invitations open in the browser or link to the meeting company's
+     own download page, so a link there clears the page; a file from anywhere
+     else, or a download button that goes nowhere real, does not. */
+  const MEETING_VENDOR_DOMAINS = [
+    "zoom.us", "zoom.com", "zoomgov.com", "microsoft.com", "cloud.microsoft", "live.com",
+    "office.com", "skype.com", "google.com", "webex.com", "cisco.com", "goto.com",
+    "gotomeeting.com", "bluejeans.com", "whereby.com", "slack.com", "discord.com",
+    "apple.com", "ringcentral.com", "jitsi.org", "8x8.vc"
+  ];
+  const MEETING_APP_NAMES = String.raw`(?:zoom|microsoft teams|teams|google meet|webex|skype|gotomeeting|bluejeans|meeting|video call|conference|interview)`;
+  const MEETING_APP_CUE_RES = [
+    new RegExp(String.raw`\b(?:download|install|update|get)\s+(?:the\s+|our\s+)?(?:latest\s+)?${MEETING_APP_NAMES}\s+(?:app|application|client|desktop app|sdk|plugin|extension|update|launcher|software)\b`),
+    new RegExp(String.raw`\b${MEETING_APP_NAMES}\s+(?:app|client|sdk|plugin|launcher|software)\s+(?:is\s+)?(?:required|needed|outdated|out of date|not installed|missing)`),
+    /\b(?:to|before you(?: can)?)\s+(?:join|enter|start)\s+(?:the\s+|this\s+|your\s+)?(?:meeting|interview|call|session|webinar)[^.]{0,60}\b(?:download|install|update)\b/
+  ];
+  const JOIN_CONTEXT_RE = /\b(?:join(?:ing)?|enter|start)\s+(?:the\s+|this\s+|your\s+)?(?:meeting|interview|call|session|conference|webinar)\b|\bmeeting id\b|\binvited you\b|\binterview(?:er)?\b/;
+  const MEETING_BUTTON_RE = /\b(?:download|install|update)\b/;
+  const MEETING_PAGE_MAX_CHARS = 4000;
+
+  function isMeetingVendor(host) {
+    const h = normalizeHost(host);
+    return MEETING_VENDOR_DOMAINS.some((d) => h === d || h.endsWith("." + d));
+  }
+
+  /**
+   * @param {string} host    page hostname
+   * @param {string} text    visible page text
+   * @param {{href: string, download: boolean, label: string}[]} actions
+   *        the page's links and buttons (href is "" for a button)
+   */
+  function detectFakeMeetingApp(host, text, actions) {
+    const norm = normalizeHost(host);
+    if (!norm || isLocalhost(norm) || isTrustedDomain(norm) || isMeetingVendor(norm)) return false;
+    const t = (text || "").toLowerCase().replace(/\s+/g, " ");
+    if (t.length > MEETING_PAGE_MAX_CHARS) return false;
+    if (!MEETING_APP_CUE_RES.some((re) => countsAsCue(t, re)) || !JOIN_CONTEXT_RE.test(t)) return false;
+
+    let vendorLink = false, file = false, button = false;
+    for (const a of actions || []) {
+      const label = (a.label || "").toLowerCase();
+      if (a.href) {
+        let u = null;
+        try { u = new URL(a.href); } catch { /* not a URL */ }
+        if (u && isMeetingVendor(u.hostname)) { vendorLink = true; continue; }
+        if (a.download || (u && EXECUTABLE_PATH_RE.test(u.pathname))) { file = true; continue; }
+      }
+      if (MEETING_BUTTON_RE.test(label)) button = true;
+    }
+    return file || (button && !vendorLink);
+  }
+
+  /* ── Card skimmers ──
+     networkHook.js reports the host when a request out of the page carries
+     the card number typed into a card field (plain, URL-encoded or base64).
+     Payment companies and the shop's own domains are expected destinations;
+     anything else is a skimmer. The trusted-platform list does not apply:
+     skimmers send cards to Google Analytics and free app hosting on purpose,
+     because those requests look routine. */
+  const PAYMENT_DOMAINS = [
+    "stripe.com", "stripe.network", "paypal.com", "braintreegateway.com", "braintree-api.com",
+    "adyen.com", "adyenpayments.com", "checkout.com", "squareup.com", "square.com",
+    "authorize.net", "cybersource.com", "worldpay.com", "globalpay.com", "globalpayments.com",
+    "razorpay.com", "payu.in", "payu.com", "cashfree.com", "paytm.in", "paytm.com",
+    "ccavenue.com", "billdesk.com", "juspay.in", "mollie.com", "klarna.com", "afterpay.com",
+    "affirm.com", "networkmerchants.com", "nmi.com", "bluesnap.com", "2checkout.com",
+    "verifone.cloud", "nuvei.com", "safecharge.com", "moneris.com", "paysafe.com",
+    "payeezy.com", "firstdata.com", "clover.com", "paymentech.com", "elavon.com",
+    "opayo.co.uk", "sagepay.com", "shopifycs.com", "shopify.com", "bigcommerce.com",
+    "recurly.com", "chargebee.com", "spreedly.com", "verygoodvault.com", "basistheory.com",
+    "tokenex.com", "paddle.com", "fastspring.com", "dodopayments.com", "gocardless.com",
+    "mercadopago.com", "pagseguro.com.br", "ebanx.com", "dlocal.com", "xendit.co",
+    "midtrans.com", "paystack.co", "flutterwave.com", "yookassa.ru", "cardinalcommerce.com"
+  ];
+
+  function isPaymentHost(host) {
+    const h = normalizeHost(host);
+    return PAYMENT_DOMAINS.some((d) => h === d || h.endsWith("." + d));
+  }
+
+  function isExpectedCardDestination(pageHost, toHost) {
+    const to = normalizeHost(toHost);
+    if (!to || !isThirdParty(pageHost, to)) return true;
+    if (isPaymentHost(to)) return true;
+    /* The shop's own API on a sibling domain: shop.com → shop-api.com */
+    const label = registrable(normalizeHost(pageHost)).split(".")[0];
+    return label.length >= 4 && `-${to.replace(/[^a-z0-9]/g, "-")}-`.includes(`-${label}-`);
+  }
+
+  /* ── Sponsored search results ──
+     Scam ads buy brand searches ("amazon business login") and lead to a
+     fake sign-in page, sometimes followed by a fake CAPTCHA. An ad that names
+     a brand next to sign-in wording but leads somewhere the brand does not
+     own gets a warning badge. Resellers advertise brand products all the
+     time, so product ads ("Microsoft 365 Business Premium") do not count. */
+  const AD_LOGIN_INTENT_RE = /\b(?:sign[\s-]?in|log[\s-]?in|login|my account|account login|customer (?:service|support|care)|support (?:number|center|centre)|official (?:site|website)|wallet|verify|verification|password|billing)\b/;
+
+  function adBrandMismatch(host, title) {
+    const t = (title || "").toLowerCase();
+    if (!AD_LOGIN_INTENT_RE.test(t)) return null;
+    for (const brand of Object.keys(BRAND_DOMAINS)) {
+      if (!new RegExp(`\\b${brand.toLowerCase()}\\b`).test(t)) continue;
+      return matchTrustedBrand(host) === brand ? null : brand;
+    }
+    return null;
+  }
+
   function isSensitiveFieldText(value) {
     return SENSITIVE_FIELD_RE.test((value || "").toLowerCase());
   }
@@ -599,6 +941,95 @@
       }
       return false;
     } catch { return false; }
+  }
+
+  /* ── Paste Guard and download warnings (guards.js) ──
+     Not scored signals: they act on what the user is about to do, so they
+     ask before it happens instead of adding to the page's score. */
+
+  /* A wallet recovery phrase is 12 to 24 lowercase words of 3 to 8 letters.
+     None of these common words is in the BIP-39 list, so a search or chat
+     message of the same shape is ruled out by containing one. ("that",
+     "what", "you", "when" and "have" ARE in the list, so they can't help.) */
+  const SEED_LENGTHS = new Set([12, 15, 18, 21, 24]);
+  const NOT_SEED_WORDS = new Set([
+    "the", "and", "with", "from", "how", "why", "your", "are", "was", "for", "not", "but",
+    "its", "his", "her", "them", "than", "has", "had", "which", "who", "does", "did",
+    "our", "out", "get", "got", "some"
+  ]);
+
+  function isSeedPhrase(text) {
+    /* Phrases copied from a numbered list: "1. abandon 2. ability …" */
+    const words = String(text || "").replace(/(^|\s)\d{1,2}[.):]?(?=\s)/g, " ").trim().split(/\s+/);
+    if (!SEED_LENGTHS.has(words.length)) return false;
+    return words.every((w) => /^[a-z]{3,8}$/.test(w) && !NOT_SEED_WORDS.has(w));
+  }
+
+  /* 13 to 19 digits, optionally grouped, passing the Luhn check every card
+     number carries. */
+  function isCardNumber(text) {
+    const s = String(text || "").trim();
+    if (!/^[\d -]{13,23}$/.test(s)) return false;
+    const d = s.replace(/\D/g, "");
+    if (d.length < 13 || d.length > 19 || /^(\d)\1+$/.test(d)) return false;
+    let sum = 0;
+    for (let i = 0; i < d.length; i++) {
+      let n = +d[d.length - 1 - i];
+      if (i % 2) { n *= 2; if (n > 9) n -= 9; }
+      sum += n;
+    }
+    return sum % 10 === 0;
+  }
+
+  /* What is being pasted: "seed", "card", "password" (anything pasted into
+     a password field) or null. */
+  function classifyPaste(text, fieldType) {
+    if (isSeedPhrase(text)) return "seed";
+    if (isCardNumber(text)) return "card";
+    if (fieldType === "password" && String(text || "").trim()) return "password";
+    return null;
+  }
+
+  /* Files that run code when opened. Scripts are almost never something a
+     website should hand an ordinary user; programs are, so those only warn
+     when something else about the page or link is off (guards.js). */
+  const SCRIPT_EXT = "hta|vbs|vbe|js|jse|wsf|wsh|ps1|bat|cmd|scr|pif|lnk|reg|cpl|msc|xll";
+  const PROGRAM_EXT = "exe|msi|msix|appx|msixbundle|appxbundle|dmg|pkg|apk|iso|img|vhd|vhdx|jar|appimage";
+  const RUNNABLE_RE = new RegExp(`\\.(${SCRIPT_EXT}|${PROGRAM_EXT})$`, "i");
+  const SCRIPT_RE = new RegExp(`\\.(${SCRIPT_EXT})$`, "i");
+  /* "invoice.pdf.exe", "invoice.pdf          .exe" */
+  const DISGUISED_RE = new RegExp(`\\.(pdf|docx?|xlsx?|pptx?|txt|rtf|csv|jpe?g|png|gif|heic|mp[34]|mov|avi|wav|zip)\\s*\\.(${SCRIPT_EXT}|${PROGRAM_EXT})$|\\s{5,}\\.\\w+$`, "i");
+
+  function downloadFileName(href, downloadAttr) {
+    if (downloadAttr && downloadAttr.trim()) return downloadAttr.trim().split(/[\\/]/).pop();
+    try {
+      const u = new URL(href);
+      if (!/^https?:$/.test(u.protocol)) return "";
+      return decodeURIComponent(u.pathname.split("/").pop() || "");
+    } catch { return ""; }
+  }
+
+  /* A link the user clicked: is it a file that runs code, and what kind?
+     {kind: "disguised" | "smuggled" | "script" | "program", file} or null.
+     "smuggled": the page built the file itself (blob: or data: link), a
+     trick for getting malware past email and download filters. */
+  function classifyDownload(href, downloadAttr) {
+    const hasAttr = typeof downloadAttr === "string";
+    const file = downloadFileName(href, downloadAttr);
+    /* U+202E flips the rest of the name: "invoice‮fdp.exe" shows as
+       "invoiceexe.pdf". */
+    const flipped = /[‪-‮⁦-⁩]/.test(file);
+    const clean = file.replace(/[‪-‮⁦-⁩]/g, "");
+    if (!RUNNABLE_RE.test(clean)) return null;
+    if (flipped || DISGUISED_RE.test(clean)) return { kind: "disguised", file: clean };
+    if (/^(blob|data):/i.test(href)) return { kind: "smuggled", file: clean };
+    if (SCRIPT_RE.test(clean)) {
+      /* A plain link to a .js file opens it as text; it only lands on disk
+         when the page asks for a download. */
+      if (/\.jse?$/i.test(clean) && !hasAttr) return null;
+      return { kind: "script", file: clean };
+    }
+    return { kind: "program", file: clean };
   }
 
   /**
@@ -715,7 +1146,12 @@
     detectLookalikeDomain, levenshtein, BRAND_SLDS,
     detectRegionalScam, isSensitiveFieldText, isIndianOfficialHost,
     hasTollFreeNumber, detectTechSupportScam,
-    detectNotificationBait, detectFakeShop, brandInShopHost
+    detectNotificationBait, detectFakeShop, brandInShopHost,
+    detectFakeCaptcha, isShellCommand,
+    detectFakeBrowserUpdate, isBrowserVendor,
+    detectFakeInterviewFix, detectFakeMeetingApp, isMeetingVendor,
+    isPaymentHost, isExpectedCardDestination, adBrandMismatch,
+    isSeedPhrase, isCardNumber, classifyPaste, classifyDownload
   };
 })();
 

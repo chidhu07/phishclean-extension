@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(dirname "$SCRIPT_DIR")"
+ROOT="$SCRIPT_DIR"
 EXT="$ROOT/extension"
 DIST="$ROOT/dist"
 
@@ -12,22 +12,28 @@ VERSION=$(grep -o '"version": "[^"]*"' "$EXT/manifest.json" | head -1 | cut -d'"
 echo "Building PhishClean v${VERSION}"
 echo "================================"
 
-# Clean dist
-rm -rf "$DIST"
+# Clean only what this build writes: dist/ also keeps earlier versions'
+# zips (dist/1.7.0/, for stores still reviewing them) and social images,
+# which are not in git.
+rm -rf "$DIST/chrome" "$DIST/firefox" "$DIST/edge" "$DIST"/phishclean-*-v"${VERSION}".zip
 mkdir -p "$DIST/chrome" "$DIST/firefox" "$DIST/edge"
 
 # Files to include in every build (relative to extension/)
 FILES=(
   background.js
   contentScript.js
+  guards.js
   linkTooltip.js
   breachCheck.js
   searchBadges.js
+  repoCheck.js
   riskEngine.js
   secretScanner.js
   networkHook.js
+  clipboardHook.js
   lib/publicSuffix.js
   lib/phishFeed.js
+  lib/repoRisk.js
   managed_schema.json
   popup/popup.html
   popup/popup.js
@@ -37,6 +43,7 @@ FILES=(
   options/options.js
   options/options.css
   icons/icon16.png
+  icons/icon32.png
   icons/icon48.png
   icons/icon128.png
   icons/logo.svg

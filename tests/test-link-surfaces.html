@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Inbox</title>
+</head>
+<body>
+  <!-- Link badges outside search pages (tests/guards-verify.mjs). Served as
+       a webmail page, an AI answer and a Brave Search results page. -->
+  <nav><a id="internal" href="/mail/u/0/#sent">Sent</a></nav>
+  <div class="message">
+    <p>Your account will be suspended. <a id="reported" href="https://phish-test.example/login">Verify now</a></p>
+    <p>Track your parcel: <a id="wrapped" href="https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fphish-test.example%2Fparcel&amp;data=1">parcel status</a></p>
+    <p>Pay here: <a id="lookalike" href="https://paypa1.com/checkout">PayPal checkout</a></p>
+    <p>Docs: <a id="trusted" href="https://github.com/acme/project">project on GitHub</a></p>
+    <p>Router: <a id="router" href="http://192.168.1.1/">192.168.1.1</a></p>
+    <p>Unknown: <a id="unknown" href="https://harbor-outfitters.example/">Harbor Outfitters</a></p>
+    <p><a id="image" href="https://phish-test.example/img"><img alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="1" height="1" /></a></p>
+  </div>
+  <div id="results">
+    <div class="snippet" data-type="web"><a id="brave-good" href="https://github.com/acme/project"><div class="title search-snippet-title">acme/project · GitHub</div></a></div>
+    <div class="snippet" data-type="web"><a id="brave-bad" href="https://phish-test.example/"><div class="title search-snippet-title">Account login</div></a></div>
+  </div>
+</body>
+</html>

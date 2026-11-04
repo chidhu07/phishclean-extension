@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Install - Example CLI</title>
+<style>body{font-family:sans-serif;max-width:720px;margin:40px auto;color:#222}pre{background:#f4f4f4;padding:12px}</style>
+</head>
+<body>
+  <!-- A real install page: copy buttons put shell commands on the clipboard
+       and the text says to open a terminal and paste. It must not warn. -->
+  <h1>Installing Example CLI</h1>
+  <p>Open a terminal and paste the command for your platform, then press Enter.</p>
+  <h2>macOS and Linux</h2>
+  <pre id="unix">curl -fsSL https://cli.example/install.sh | bash</pre>
+  <button id="copy-unix">Copy</button>
+  <h2>Windows</h2>
+  <pre id="win">powershell -ExecutionPolicy ByPass -c "irm https://cli.example/install.ps1 | iex"</pre>
+  <button id="copy-win">Copy</button>
+  <h2>Verify the installation</h2>
+  <p>Run <code>example --version</code> to check the CLI is on your PATH. If your shell can't find it,
+     open a new terminal window so it picks up the updated PATH, or press Ctrl + V to paste the full path
+     printed by the installer.</p>
+<script>
+  for (const id of ["unix", "win"]) {
+    document.getElementById("copy-" + id).addEventListener("click", () =>
+      navigator.clipboard.writeText(document.getElementById(id).textContent).catch(() => {}));
+  }
+</script>
+</body>
+</html>

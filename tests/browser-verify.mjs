@@ -91,6 +91,18 @@ async function waitForThreat(worker, ms = 6000) {
   return null;
 }
 
+/* PAGE_SCANNED is sent only after the detectors finish, which can take a few
+   seconds on a busy machine, so poll for the count instead of a fixed wait. */
+async function waitForPages(worker, want, ms = 6000) {
+  const deadline = Date.now() + ms;
+  let act = todayPages(await getActivity(worker));
+  while (act.pages < want && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+    act = todayPages(await getActivity(worker));
+  }
+  return act;
+}
+
 async function main() {
   const server = await startServer();
   const userDataDir = mkdtempSync(join(tmpdir(), "phishclean-verify-"));
@@ -311,9 +323,11 @@ async function main() {
     await resetSession(worker); await clearActivity(worker);
     page = await context.newPage();
     await page.goto(`${BASE}/test-safe-login.html`, { waitUntil: "load" });
+    /* Leaving a page before its scan finishes drops that count, so let the
+       first one land before navigating. */
+    await waitForPages(worker, 1);
     await page.goto(`${BASE}/test-password.html`, { waitUntil: "load" });
-    await page.waitForTimeout(1200);
-    const act = todayPages(await getActivity(worker));
+    const act = await waitForPages(worker, 2);
     ok("Counter: two scanned pages counted today", act.pages === 2, JSON.stringify(act));
     const badge = await worker.evaluate(() => chrome.action.getBadgeText({}));
     ok("Badge: shows today's page count", badge === "2", `badge="${badge}"`);

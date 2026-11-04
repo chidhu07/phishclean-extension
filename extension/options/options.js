@@ -235,7 +235,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 applyTabState();
 loadState();
 
-/* Search result badges (searchBadges.js) are on unless switched off here. */
+/* Link badges (searchBadges.js: search results, webmail, social, AI answers) are on unless switched off here. */
 const searchBadges = document.getElementById("search-badges");
 chrome.storage.local.get("phishclean_search_badges").then((d) => {
   searchBadges.checked = d.phishclean_search_badges !== false;

@@ -51,7 +51,7 @@ body {
 }
 .logo { display: flex; align-items: center; gap: 9px; color: inherit; text-decoration: none; }
 .logo:hover .logo-text { text-decoration: underline; text-underline-offset: 3px; }
-.logo svg { filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.25)); }
+.logo img { filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.25)); }
 .logo-text { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; color: #f8fafc; }
 
 .badge {
