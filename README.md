@@ -52,6 +52,21 @@ grep -rnE "fetch(Fn)?\(|XMLHttpRequest|sendBeacon|WebSocket|setUninstallURL" ext
 
 The `<all_urls>` host permission exists because the content scripts must run on every page to inspect it; it is not used to send anything.
 
+## If a repo checker warns about this repository
+
+PhishClean's own coding-test repo check says this repository "runs hidden code when you install or open it", and other scanners may say something similar. That is a false alarm, and the rule has not been fixed yet. The check reads three things here as if they were real attacks: the detection patterns in [`extension/lib/repoRisk.js`](extension/lib/repoRisk.js), a harmless sample of a fake coding test in [`tests/interview-verify.mjs`](tests/interview-verify.mjs) that points at `.example` addresses, and test helpers such as Playwright's `$eval`.
+
+Nothing here runs when you install it or open the folder. There are no install hooks and no `.vscode` folder. You can confirm that without running any of the code:
+
+```sh
+git clone --no-checkout --depth 1 https://github.com/chidhu07/phishclean-extension.git review
+cd review
+git grep -nE '"(preinstall|install|postinstall|prepare)"[[:space:]]*:' HEAD -- '*package.json'
+git ls-tree -r HEAD --name-only | grep '^\.vscode'
+```
+
+Both commands should print nothing.
+
 ## Run it from source
 
 1. Clone this repository.
