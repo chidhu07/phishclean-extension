@@ -30,7 +30,9 @@
     FAKE_BROWSER_UPDATE: "FAKE_BROWSER_UPDATE",
     CARD_SKIMMER: "CARD_SKIMMER",
     FAKE_INTERVIEW_FIX: "FAKE_INTERVIEW_FIX",
-    FAKE_MEETING_APP: "FAKE_MEETING_APP"
+    FAKE_MEETING_APP: "FAKE_MEETING_APP",
+    BROWSER_IN_BROWSER: "BROWSER_IN_BROWSER",
+    DEVICE_CODE_PHISH: "DEVICE_CODE_PHISH"
   };
 
   const WEIGHTS = {
@@ -79,7 +81,13 @@
     FAKE_INTERVIEW_FIX: 60,
     /* Already requires "download the meeting app to join", a file to run
        (or a download button) and a site that is not the meeting company's. */
-    FAKE_MEETING_APP: 50
+    FAKE_MEETING_APP: 50,
+    /* Already requires a positioned box that shows a real sign-in address as
+       page text around a login form or frame, on another company's site. */
+    BROWSER_IN_BROWSER: 55,
+    /* Already requires a device sign-in address, a code to enter and a short
+       page on a site that is not Microsoft's, GitHub's or Google's. */
+    DEVICE_CODE_PHISH: 55
   };
 
   const THRESHOLD = 40;
@@ -119,6 +127,8 @@
     CARD_SKIMMER: "This page sent the card number you typed to another site that is not a payment company. That is how card skimmers on hacked shops steal cards.",
     FAKE_INTERVIEW_FIX: "This interview or meeting page says your camera or microphone is broken and tells you to paste a fix into Terminal, PowerShell or the Run box. No real interview platform does that. Fake job interviews use it to install malware that steals crypto wallets, passwords and work logins.",
     FAKE_MEETING_APP: "This page says you need to download a meeting app to join an interview or call, and the file does not come from the company that makes the app. Fake meeting apps are how fake recruiters get malware onto a laptop.",
+    BROWSER_IN_BROWSER: "This page draws a fake sign-in window with a real-looking address bar. A real sign-in popup is a separate browser window; this one is part of the page, and whatever you type goes to the site that drew it.",
+    DEVICE_CODE_PHISH: "This page gives you a code to enter at Microsoft's, GitHub's or Google's device sign-in page. Entering it would sign someone else's device into your account, without them ever needing your password.",
     REGIONAL_SCAM: "This page follows a known scam script (fake traffic e-challan, KYC update, electricity disconnection, held parcel, tax refund or reward points) and asks for card, UPI or OTP details on a site that is not the real bank or government service."
   };
 
@@ -791,6 +801,93 @@
     return file || (button && !vendorLink);
   }
 
+  /* ── Browser-in-the-browser ──
+     A fake sign-in "window" drawn inside the page: a box with an address bar
+     that shows a real sign-in address (accounts.google.com, login.microsoft-
+     online.com…) around a login form or frame, on a site that isn't that
+     company's. A real popup is a separate browser window, so its address
+     never appears as page text. contentScript passes only positioned boxes
+     (fixed or absolute, popup-sized) whose text contains such an address. */
+  const SIGN_IN_ADDRESS_RE = /\bhttps?:\/\/((?:accounts\.google\.com|login\.microsoftonline\.com|login\.live\.com|appleid\.apple\.com|(?:www\.)?facebook\.com|github\.com|discord\.com|steamcommunity\.com|(?:www\.)?paypal\.com|login\.yahoo\.com|x\.com|twitter\.com|(?:www\.)?linkedin\.com|id\.atlassian\.com|account\.live\.com))(?=[\/\s?#]|$)/i;
+
+  function signInAddressIn(text) {
+    const m = (text || "").match(SIGN_IN_ADDRESS_RE);
+    return m ? m[1].toLowerCase() : "";
+  }
+
+  /* boxes: [{ text, hasLogin, hasFrame }] */
+  function detectBrowserInBrowser(host, boxes) {
+    const norm = normalizeHost(host);
+    if (!norm || isLocalhost(norm)) return false;
+    for (const box of boxes || []) {
+      const shown = signInAddressIn(box.text);
+      if (!shown || !(box.hasLogin || box.hasFrame)) continue;
+      const shownReg = registrable(normalizeHost(shown));
+      /* The company's own site showing its own address is fine. */
+      if (registrable(norm) === shownReg) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /* ── Device-code phishing ──
+     The page shows a short code and tells you to enter it at Microsoft's,
+     GitHub's or Google's device sign-in page. Entering it signs the
+     attacker's device into your account (EvilTokens and similar kits), and
+     the sign-in itself happens on the real site, so no password field or
+     lookalike ever appears. Docs that explain the flow are long pages on
+     trusted domains; the lure is a short page with a code to copy. */
+  const DEVICE_LOGIN_RE = /(?:microsoft\.com\/devicelogin|aka\.ms\/devicelogin|login\.microsoftonline\.com\/(?:common\/oauth2\/)?deviceauth|github\.com\/login\/device|google\.com\/device)\b/i;
+  const DEVICE_CODE_RE = /\b(?:[A-Z0-9]{4}-[A-Z0-9]{4}|(?=[A-Z0-9]{8,9}\b)(?=[A-Z0-9]*\d)[A-Z0-9]*[A-Z][A-Z0-9]*)\b/;
+  const ENTER_CODE_RE = /\b(?:enter|type|paste|use|input)\b[^.]{0,40}\bcode\b|\bcode\b[^.]{0,30}\b(?:below|above|shown)\b/i;
+  const DEVICE_OWNER_DOMAINS = ["microsoft.com", "microsoftonline.com", "live.com", "aka.ms", "github.com", "google.com", "office.com", "azure.com"];
+  const DEVICE_PAGE_MAX_CHARS = 4000;
+
+  function detectDeviceCodePhish(host, text) {
+    const norm = normalizeHost(host);
+    if (!norm || isLocalhost(norm) || isTrustedDomain(norm)) return false;
+    if (DEVICE_OWNER_DOMAINS.some((d) => norm === d || norm.endsWith("." + d))) return false;
+    const t = (text || "").replace(/\s+/g, " ");
+    if (t.length > DEVICE_PAGE_MAX_CHARS) return false;
+    return DEVICE_LOGIN_RE.test(t) && ENTER_CODE_RE.test(t) && DEVICE_CODE_RE.test(t);
+  }
+
+  /* ── Refrigeration controllers open to the internet ──
+     The 2026 supermarket fridge attacks (CERT-FR CERTFR-2026-ALE-012) went
+     through controller web pages left on the public internet. This is not a
+     phishing signal: guards.js shows a notice telling whoever opened the
+     panel (usually the store or its contractor) that anyone can reach it.
+     Only public IP addresses and dynamic-DNS names count, because a panel
+     reached on the store network or through a VPN is the safe setup. */
+  const CONTROL_PANEL_RE = /\b(?:AK-?S[MC] ?\d{3}A?|StoreView|XWEB(?: ?(?:\d{3,4}|EVO|Pro))?|Dixell|Danfoss|Copeland)\b/i;
+  const PANEL_FAMILIES = [[/AK-?S[MC]|StoreView|Danfoss/i, "Danfoss"], [/XWEB|Dixell|Copeland/i, "Copeland/Dixell XWEB"]];
+  const DYNAMIC_DNS = [
+    "dyndns.org", "dyndns.biz", "dnsalias.com", "no-ip.org", "no-ip.biz", "noip.me", "ddns.net",
+    "hopto.org", "zapto.org", "sytes.net", "duckdns.org", "dynu.net", "freeddns.org", "changeip.com",
+    "myfritz.net", "synology.me"
+  ];
+  const PRIVATE_V4 = /^(?:0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/;
+
+  function isPublicAddress(host) {
+    const h = (host || "").toLowerCase();
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(h)) return !PRIVATE_V4.test(h);
+    if (h.startsWith("[")) return !/^\[(?:::1?|f[cd]|fe[89ab])/.test(h); // loopback, unique-local, link-local
+    return DYNAMIC_DNS.some((d) => h === d || h.endsWith("." + d));
+  }
+
+  /* The panel's product family, or "" when the page isn't one of these
+     panels or isn't reached over the public internet. A match in the page
+     text also needs a password field, so an article about the attacks
+     doesn't count. */
+  function detectExposedControlPanel(host, title, text, hasPassword) {
+    if (!isPublicAddress(host)) return "";
+    const t = title || "";
+    const body = (text || "").slice(0, 3000);
+    const src = CONTROL_PANEL_RE.test(t) ? t : hasPassword && CONTROL_PANEL_RE.test(body) ? body : "";
+    if (!src) return "";
+    return PANEL_FAMILIES.find(([re]) => re.test(src))[1];
+  }
+
   /* ── Card skimmers ──
      networkHook.js reports the host when a request out of the page carries
      the card number typed into a card field (plain, URL-encoded or base64).
@@ -1150,6 +1247,8 @@
     detectFakeCaptcha, isShellCommand,
     detectFakeBrowserUpdate, isBrowserVendor,
     detectFakeInterviewFix, detectFakeMeetingApp, isMeetingVendor,
+    detectBrowserInBrowser, detectDeviceCodePhish,
+    isPublicAddress, detectExposedControlPanel,
     isPaymentHost, isExpectedCardDestination, adBrandMismatch,
     isSeedPhrase, isCardNumber, classifyPaste, classifyDownload
   };

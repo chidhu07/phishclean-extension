@@ -405,6 +405,53 @@
     }
   }
 
+  /* PRO: browser-in-the-browser — see detectBrowserInBrowser in riskEngine.
+     Only runs when the page text contains a sign-in address at all; then
+     each text node holding one is walked up to its nearest fixed/absolute,
+     popup-sized box, and that box is described to the engine. */
+  const BITB_ADDRESS_RE = /https?:\/\/(?:accounts\.google|login\.microsoftonline|login\.live|appleid\.apple|(?:www\.)?facebook|github|discord|steamcommunity|(?:www\.)?paypal|login\.yahoo|x|twitter|(?:www\.)?linkedin|id\.atlassian|account\.live)\.com/i;
+  function detectBrowserInBrowser() {
+    if (typeof engine.detectBrowserInBrowser !== "function") return;
+    if (state.signals.has(engine.SIGNALS.BROWSER_IN_BROWSER)) return;
+    if (!BITB_ADDRESS_RE.test((document.body?.textContent || "").slice(0, 50000))) return;
+    const boxes = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node, seen = 0;
+    while ((node = walker.nextNode()) && seen < 400) {
+      seen++;
+      if (!BITB_ADDRESS_RE.test(node.nodeValue || "")) continue;
+      let el = node.parentElement;
+      for (let depth = 0; el && depth < 8; depth++, el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (cs.position !== "fixed" && cs.position !== "absolute") continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 240 || r.width > 1000 || r.height < 200 || cs.display === "none" || cs.visibility === "hidden") continue;
+        boxes.push({
+          text: (el.textContent || "").slice(0, 3000),
+          hasLogin: !!el.querySelector('input[type="password"], input[type="email"], input[autocomplete="username"], input[name*="user" i], input[name*="email" i]'),
+          hasFrame: !!el.querySelector("iframe")
+        });
+        break;
+      }
+      if (boxes.length >= 5) break;
+    }
+    if (boxes.length && engine.detectBrowserInBrowser(host(), boxes)) {
+      state.signals.add(engine.SIGNALS.BROWSER_IN_BROWSER);
+    }
+  }
+
+  /* PRO: device-code phishing — see detectDeviceCodePhish in riskEngine.
+     The page text is only read when it names a device sign-in address. */
+  function detectDeviceCodePhish() {
+    if (typeof engine.detectDeviceCodePhish !== "function") return;
+    if (state.signals.has(engine.SIGNALS.DEVICE_CODE_PHISH)) return;
+    const raw = (document.body?.textContent || "").slice(0, 20000);
+    if (!/devicelogin|deviceauth|login\/device|google\.com\/device/i.test(raw)) return;
+    if (engine.detectDeviceCodePhish(host(), document.body.innerText || "")) {
+      state.signals.add(engine.SIGNALS.DEVICE_CODE_PHISH);
+    }
+  }
+
   /* PRO: secret leak scanner — hardcoded API keys in page source + same-origin bundles */
   function applySecretResult(result) {
     if (!result || result.skipped || !result.found) return;
@@ -493,7 +540,11 @@
     const skimmer = state.signals.has(engine.SIGNALS.CARD_SKIMMER);
     const interviewFix = state.signals.has(engine.SIGNALS.FAKE_INTERVIEW_FIX);
     const meetingApp = state.signals.has(engine.SIGNALS.FAKE_MEETING_APP);
+    const bitb = state.signals.has(engine.SIGNALS.BROWSER_IN_BROWSER);
+    const deviceCode = state.signals.has(engine.SIGNALS.DEVICE_CODE_PHISH);
     const title = skimmer ? "Your card number was sent to another site"
+      : deviceCode ? "Don't enter that code"
+      : bitb ? "Fake sign-in window"
       : interviewFix ? "Fake interview: don't run that fix"
       : fakeCaptcha ? "Don't paste that command"
       : meetingApp ? "Fake meeting app"
@@ -505,6 +556,10 @@
               : "Potential Risk Detected";
     const subtitle = skimmer
       ? `This checkout sent the card number you typed to ${state.skimmerHost}, which is not a payment company. Don't submit the form. If you already paid, call your bank and ask them to block the card.`
+      : deviceCode
+      ? "Entering this code at Microsoft's, GitHub's or Google's device page would sign the attacker's device into your account, no password needed. Close the tab. If you already entered it, sign out of all sessions and change your password."
+      : bitb
+      ? "This sign-in box is drawn by the page, not opened by your browser, so the address in it proves nothing. Don't type anything into it. Go to the real site by typing its address yourself."
       : interviewFix
       ? "Real interview platforms never ask you to paste commands to fix your camera. Don't open Terminal, PowerShell or the Run box. Close the tab and stop talking to this recruiter; whatever it copied stays harmless until you run it."
       : meetingApp
@@ -584,6 +639,13 @@
 
         .help-link { display: block; margin-top: 16px; font-size: 13px; color: #93c5fd; text-decoration: none; }
         .help-link:hover { text-decoration: underline; }
+        .fp { margin-top: 10px; font-size: 12px; color: #64748b; }
+        .fp a { color: #94a3b8; }
+        .fp-confirm { margin-top: 10px; font-size: 12px; color: #cbd5e1; background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 10px 12px; line-height: 1.5; }
+        .fp-confirm .fp-actions { margin-top: 8px; display: flex; gap: 8px; }
+        .fp-confirm button { font: inherit; font-size: 12px; padding: 5px 12px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer; }
+        .fp-confirm button.fp-send { background: #2563eb; border-color: #2563eb; color: #fff; }
+        .hidden { display: none !important; }
         .privacy { margin-top: 16px; font-size: 11px; color: #475569; text-align: center; }
         .privacy span { color: #22c55e; }
       </style>
@@ -613,7 +675,7 @@
             <button class="btn btn-back" id="btn-back">Go Back</button>
             <button class="btn btn-ignore" id="btn-ignore">Ignore Once</button>
             <button class="btn btn-whitelist" id="btn-wl">Trust this domain</button>
-            <button class="btn btn-upgrade ${state.proEnabled ? "hidden" : ""}" id="btn-up">Restore the other 22 checks</button>
+            <button class="btn btn-upgrade ${state.proEnabled ? "hidden" : ""}" id="btn-up">Restore the other 24 checks</button>
           </div>
 
           ${interviewFix || meetingApp
@@ -624,7 +686,13 @@
             ? `<a class="help-link" id="btn-help" href="https://www.phishclean.com/blog/how-to-remove-fake-virus-popup?utm_source=extension&amp;utm_medium=warning#already-called" target="_blank" rel="noopener">Already called the number or let someone onto your computer? What to do now &rarr;</a>`
             : `<a class="help-link" id="btn-help" href="https://www.phishclean.com/help/clicked-a-phishing-link?utm_source=extension&amp;utm_medium=warning" target="_blank" rel="noopener">Already typed a password or card details here? What to do now &rarr;</a>`}
 
-          <p class="privacy"><span>&#x2713;</span> All analysis runs on your device. No browsing data is sent to any server.</p>
+          <p class="fp" id="fp-row">Wrong warning? <a href="#" id="btn-fp">Tell PhishClean</a></p>
+          <div class="fp-confirm hidden" id="fp-confirm">
+            <div id="fp-text"></div>
+            <div class="fp-actions"><button class="fp-send" id="fp-send">Send</button><button id="fp-cancel">Cancel</button></div>
+          </div>
+
+          <p class="privacy"><span>&#x2713;</span> All analysis runs on your device. Nothing is sent unless you report a wrong warning.</p>
         </div>
       </div>
     `;
@@ -670,6 +738,26 @@
     };
     shadow.getElementById("btn-up").onclick = () => {
       chrome.runtime.sendMessage({ type: "OPEN_PAYMENT" });
+    };
+    /* "Wrong warning?": says exactly what would be sent (this domain and the
+       check names, nothing from the page), and sends only after Send. */
+    const fpConfirm = shadow.getElementById("fp-confirm");
+    shadow.getElementById("btn-fp").onclick = (e) => {
+      e.preventDefault();
+      shadow.getElementById("fp-text").textContent =
+        `Send PhishClean this site's address (${host()}) and the names of the checks that fired, so the warning can be fixed? Nothing from the page itself is sent.`;
+      fpConfirm.classList.remove("hidden");
+      shadow.getElementById("fp-row").classList.add("hidden");
+    };
+    shadow.getElementById("fp-cancel").onclick = () => {
+      fpConfirm.classList.add("hidden");
+      shadow.getElementById("fp-row").classList.remove("hidden");
+    };
+    shadow.getElementById("fp-send").onclick = async () => {
+      const resp = await chrome.runtime.sendMessage({ type: "REPORT_FALSE_POSITIVE", domain: host(), signals: [...state.signals] }).catch(() => null);
+      fpConfirm.textContent = resp?.ok
+        ? "Thanks, sent. If you trust this site, \"Trust this domain\" stops warnings here."
+        : "Couldn't send right now. You can still use \"Trust this domain\".";
     };
 
     /* ── accessibility: focus management, Escape to dismiss, Tab trap ── */
@@ -798,7 +886,8 @@
     detectVisualAnomalies, detectBacklinkImpersonation, detectTokenStorage,
     detectHttpPassword, detectHttpFromHttps, detectLookalikeDomain,
     detectRegionalScam, detectTechSupportScam, detectNotificationBait,
-    detectFakeShop, detectFakeBrowserUpdate, detectFakeMeetingApp
+    detectFakeShop, detectFakeBrowserUpdate, detectFakeMeetingApp,
+    detectBrowserInBrowser, detectDeviceCodePhish
   ];
 
   function runSyncDetectors() {

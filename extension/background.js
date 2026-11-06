@@ -32,6 +32,12 @@ const ACCOUNT_PROMPT_DELAY_DAYS = 3;
 const WEEKLY_REPORT_ALARM = "weekly-report";
 const WEEKLY_REPORT_NOTIFICATION = "weekly-report";
 const WEEK_MINUTES = 7 * 24 * 60;
+/* Most installs that leave do so in the first two or three days, before the
+   weekly report ever arrives, often because a silent extension looks like
+   it does nothing. One summary about 30 hours in shows the work it did. */
+const FIRST_DAY_ALARM = "first-day-summary";
+const FIRST_DAY_NOTIFICATION = "first-day-summary";
+const FIRST_DAY_DELAY_HOURS = 30;
 const RECOVERY_URL = "https://www.phishclean.com/help/clicked-a-phishing-link";
 const BREACHES_KEY = "phishclean_breaches";
 const BREACHES_URL = "https://haveibeenpwned.com/api/v3/breaches";
@@ -197,7 +203,7 @@ async function updateBadge(license) {
     if ((license?.needs_account || license?.needs_payment) && license?.last_checked_at) {
       chrome.action.setBadgeText({ text: "!" });
       chrome.action.setBadgeBackgroundColor({ color: "#ef4444" });
-      chrome.action.setTitle({ title: "PhishClean — the trial has ended; 5 of 27 checks are running" });
+      chrome.action.setTitle({ title: "PhishClean — the trial has ended; 5 of 29 checks are running" });
       return;
     }
     const days = (await getLocal([ACTIVITY_KEY]))[ACTIVITY_KEY] || {};
@@ -242,11 +248,30 @@ async function sendWeeklyReport() {
   });
 }
 
+async function sendFirstDaySummary() {
+  if (!chrome.notifications?.create) return;
+  const { pages, threats } = await weekSummary();
+  if (!pages) return; /* the browser was barely used; nothing worth saying */
+  const title = threats
+    ? `PhishClean blocked ${threats} ${threats === 1 ? "threat" : "threats"} on your first day`
+    : `PhishClean checked ${pages.toLocaleString()} ${pages === 1 ? "page" : "pages"} on your first day`;
+  const message = (threats
+    ? `${pages.toLocaleString()} ${pages === 1 ? "page" : "pages"} checked so far.`
+    : "Nothing dangerous so far. It keeps checking every page you open, on your device.") +
+    " Click to see what it checked.";
+  chrome.notifications.create(FIRST_DAY_NOTIFICATION, {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+    title,
+    message
+  });
+}
+
 const openReport = () => chrome.tabs.create({ url: chrome.runtime.getURL("report/report.html") });
 
 if (chrome.notifications?.onClicked) {
   chrome.notifications.onClicked.addListener((id) => {
-    if (id !== WEEKLY_REPORT_NOTIFICATION) return;
+    if (id !== WEEKLY_REPORT_NOTIFICATION && id !== FIRST_DAY_NOTIFICATION) return;
     openReport();
     chrome.notifications.clear(id);
   });
@@ -542,6 +567,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     chrome.alarms.create(ACCOUNT_PROMPT_ALARM, {
       when: Date.now() + ACCOUNT_PROMPT_DELAY_DAYS * 24 * 60 * 60 * 1000
     });
+    chrome.alarms.create(FIRST_DAY_ALARM, { when: Date.now() + FIRST_DAY_DELAY_HOURS * 60 * 60 * 1000 });
   }
 
   /* Set up periodic license check every 6 hours */
@@ -580,6 +606,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "license-check") refreshStatus();
   if (alarm.name === ACCOUNT_PROMPT_ALARM) maybePromptForAccount("day-3");
   if (alarm.name === WEEKLY_REPORT_ALARM) sendWeeklyReport();
+  if (alarm.name === FIRST_DAY_ALARM) sendFirstDaySummary();
   if (alarm.name === BREACHES_ALARM) refreshBreaches();
   if (alarm.name === FEED_ALARM) globalThis.PhishCleanFeed?.refresh();
 });
@@ -719,6 +746,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         await handlePaymentPageAction(msg.action, sender.tab.id);
         sendResponse({ ok: true });
+        break;
+      }
+      case "REPORT_FALSE_POSITIVE": {
+        /* From the warning's "Wrong warning?" after the user pressed Send:
+           only the domain, check names and version (api/_lib/falsePositive.js). */
+        try {
+          const r = await fetch(`${API_BASE}/contact?mode=false_positive`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              domain: String(msg.domain || "").slice(0, 253),
+              signals: Array.isArray(msg.signals) ? msg.signals.slice(0, 30) : [],
+              version: chrome.runtime.getManifest().version
+            })
+          });
+          sendResponse({ ok: r.ok });
+        } catch {
+          sendResponse({ ok: false });
+        }
         break;
       }
       case "LEAVE_PAGE": {

@@ -14,6 +14,9 @@
    pasted, typed or downloaded is sent anywhere; the clipboard text is read
    from the paste event, on the device, only to classify it.
    Trial and paid plans only, like the other paused checks.
+
+   Exposed control panel notice (free): a refrigeration controller's login
+   page opened from a public internet address. See the end of this file.
 */
 (() => {
   const engine = window.PhishCleanRiskEngine;
@@ -265,6 +268,85 @@
       setTimeout(() => allowed.delete(a), 1000);
     });
   }, true);
+
+  /* ── Exposed control panel notice ──
+     A refrigeration controller's login page opened from a public internet
+     address (detectExposedControlPanel in riskEngine.js). Free for everyone.
+     A corner card, not a prompt: whoever opens the panel usually runs it, so
+     the point is to tell them anyone else can reach it too. "Don't warn me"
+     remembers the address on this device only. */
+  const PANEL_OK_KEY = "phishclean_panel_ok";
+  const PANEL_GUIDE = "https://www.phishclean.com/blog/supermarket-fridge-cyberattacks-europe";
+
+  function panelNotice(family) {
+    const wrapper = document.createElement("div");
+    wrapper.id = "phishclean-panel-notice";
+    const shadow = wrapper.attachShadow({ mode: "closed" });
+    shadow.innerHTML = `
+      <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :host { all: initial; }
+        .card { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; width: min(380px, calc(100vw - 32px));
+          background: #0f1117; color: #e2e8f0; border: 1px solid #1e293b; border-radius: 14px; padding: 18px;
+          box-shadow: 0 24px 48px rgba(0,0,0,0.4); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .head { display: flex; gap: 10px; align-items: flex-start; }
+        .title { font-size: 15px; font-weight: 600; color: #f1f5f9; line-height: 1.35; }
+        .body { font-size: 13px; color: #94a3b8; line-height: 1.55; margin: 8px 0 14px; }
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .btn { border: none; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; }
+        .ok { background: #f59e0b; color: #111; }
+        .ok:hover { background: #fbbf24; }
+        .mute { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+        .mute:hover { background: #334155; color: #e2e8f0; }
+        a { color: #fcd34d; font-size: 13px; margin-left: auto; }
+      </style>
+      <div class="card" role="alert" aria-labelledby="t" aria-describedby="b">
+        <div class="head">
+          <svg width="26" height="30" viewBox="0 0 32 36" fill="none" style="flex-shrink:0"><path d="M16 1.5L3 7v10.5c0 9 5.5 16.5 13 18.5 7.5-2 13-9.5 13-18.5V7L16 1.5z" fill="#f59e0b"/><path d="M16 4.5L6 9v8.5c0 7.5 4.5 13.5 10 15.5 5.5-2 10-8 10-15.5V9L16 4.5z" fill="#d97706"/><path d="M16 11v9" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/><circle cx="16" cy="25" r="1.7" fill="#fff"/></svg>
+          <div class="title" id="t">Anyone on the internet can reach this panel</div>
+        </div>
+        <p class="body" id="b"></p>
+        <div class="actions">
+          <button class="btn ok" id="ok">Got it</button>
+          <button class="btn mute" id="mute">Don't warn me for this address</button>
+          <a href="${PANEL_GUIDE}" target="_blank" rel="noopener">What to do</a>
+        </div>
+      </div>`;
+    /* textContent: the host comes from the page's address. */
+    shadow.getElementById("b").textContent =
+      `This looks like a ${family} refrigeration controller, opened at ${host()}, which is a public internet address. ` +
+      "Controllers like this were used to heat supermarket fridges across Europe in 2026. " +
+      "Ask whoever installed it to take it off the internet and allow access only through a VPN.";
+    shadow.getElementById("ok").onclick = () => wrapper.remove();
+    shadow.getElementById("mute").onclick = () => {
+      wrapper.remove();
+      chrome.storage.local.get(PANEL_OK_KEY).then((r) => {
+        const list = r[PANEL_OK_KEY] || [];
+        if (!list.includes(host())) chrome.storage.local.set({ [PANEL_OK_KEY]: [...list, host()].slice(-200) });
+      }).catch(() => {});
+    };
+    document.documentElement.appendChild(wrapper);
+  }
+
+  function checkControlPanel() {
+    if (document.getElementById("phishclean-panel-notice") || page.isWhitelisted()) return false;
+    const family = engine.detectExposedControlPanel(host(), document.title,
+      document.body?.innerText || "", !!document.querySelector('input[type="password"]'));
+    if (!family) return false;
+    chrome.storage.local.get(PANEL_OK_KEY).then((r) => {
+      if (!(r[PANEL_OK_KEY] || []).includes(host())) panelNotice(family);
+    }).catch(() => {});
+    return true;
+  }
+
+  /* Most pages aren't on a bare IP or dynamic-DNS name, so they stop at the
+     first test. Controller UIs often fill in their title after load, hence
+     one more look a few seconds later. */
+  if (engine.isPublicAddress(host())) {
+    page.ready().then(() => {
+      if (!checkControlPanel()) setTimeout(checkControlPanel, 3000);
+    }).catch(() => {});
+  }
 
   window.PhishCleanGuards = { addressConcern };
 })();

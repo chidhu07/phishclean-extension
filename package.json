@@ -1,11 +1,11 @@
 {
   "name": "phishclean-extension",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "private": true,
   "type": "module",
   "description": "PhishClean browser extension source — published so the privacy claims can be verified.",
   "scripts": {
-    "test": "node --test tests/*.test.mjs && node tests/browser-verify.mjs && node tests/breach-verify.mjs && node tests/feed-verify.mjs && node tests/shield-verify.mjs && node tests/guards-verify.mjs && node tests/fake-captcha-verify.mjs && node tests/hacked-site-verify.mjs && node tests/interview-verify.mjs",
+    "test": "node --test tests/*.test.mjs && node tests/browser-verify.mjs && node tests/breach-verify.mjs && node tests/feed-verify.mjs && node tests/shield-verify.mjs && node tests/guards-verify.mjs && node tests/fake-captcha-verify.mjs && node tests/hacked-site-verify.mjs && node tests/interview-verify.mjs && node tests/sign-in-tricks-verify.mjs && node tests/control-panel-verify.mjs",
     "build": "bash build.sh"
   },
   "devDependencies": {

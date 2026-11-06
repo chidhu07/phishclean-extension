@@ -134,6 +134,41 @@ function renderStats(stats) {
   $("#blocked-count").textContent = stats?.blocked || 0;
 }
 
+/* ── one-time rating ask ──
+   Only after PhishClean has blocked at least one threat, so the ask follows
+   something it actually did. Either button ends it for good. Everyone gets
+   the same store link: asking only people who say they're happy is rating
+   manipulation under the stores' rules. Not shown to managed (Team)
+   installs, where the employee didn't choose the extension. */
+const REVIEW_ASK_KEY = "phishclean_review_ask";
+const STORE_REVIEW_URL = (() => {
+  const ua = navigator.userAgent;
+  if (/Firefox\//.test(ua)) return "https://addons.mozilla.org/firefox/addon/phishclean/reviews/";
+  if (/Edg\//.test(ua)) return "https://microsoftedge.microsoft.com/addons/detail/phishclean/jeilenifcaoenlglebpmmphbfmbfkgbj";
+  return "https://chromewebstore.google.com/detail/phishclean/kloceclooedmphmnnpgoekolaggejgca/reviews";
+})();
+
+async function renderReviewAsk(stats, license) {
+  const blocked = Number(stats?.blocked || 0);
+  if (blocked < 1 || license?.managed) return;
+  if ((await chrome.storage.local.get(REVIEW_ASK_KEY))[REVIEW_ASK_KEY]) return;
+  const box = $("#review-ask");
+  $("#review-ask-text").textContent =
+    `PhishClean has blocked ${blocked.toLocaleString()} ${blocked === 1 ? "threat" : "threats"} for you. ` +
+    "A quick rating helps other people find it.";
+  const close = (outcome) => {
+    chrome.storage.local.set({ [REVIEW_ASK_KEY]: { outcome, at: Date.now() } });
+    box.classList.add("hidden");
+  };
+  $("#btn-review").addEventListener("click", (e) => {
+    e.preventDefault();
+    close("opened");
+    chrome.tabs.create({ url: STORE_REVIEW_URL });
+  }, { once: true });
+  $("#btn-review-later").addEventListener("click", () => close("dismissed"), { once: true });
+  box.classList.remove("hidden");
+}
+
 /* Local day key — must match dayKey in background.js. */
 const dayKey = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -307,6 +342,7 @@ async function init() {
   renderWhitelist(domains);
   renderWeek().catch(() => {});
   renderFeed().catch(() => {});
+  renderReviewAsk(stats, license).catch(() => {});
 
   /* Background license refresh to catch recent payments */
   chrome.runtime.sendMessage({ type: "REFRESH_LICENSE_STATE" }).then((freshResp) => {

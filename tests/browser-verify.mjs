@@ -386,6 +386,67 @@ async function main() {
     ok("Refresh: server price labels stored on the licence", stored?.pricing?.monthly === INR_LABELS.monthly, JSON.stringify(stored?.pricing));
     await page.close();
 
+    // ── Test 14 — One-time rating ask, only after something was blocked ──
+    console.log("\n── Test 14: Rating ask after a block, once ──");
+    /* Back to a blocked backend (Test 13 left /api/status answering "trial
+       over", which would put the paywall over the popup). */
+    await context.unroute("**://www.phishclean.com/**");
+    await context.unroute("**://www.phishclean.com/api/status");
+    await context.route("**://www.phishclean.com/**", (r) => r.abort());
+    const setStats = (blocked) => worker.evaluate((b) => chrome.storage.local.set({ phishclean_stats: { blocked: b } }), blocked);
+    /* Rendered, not just un-classed: .hidden is defined per component in popup.css. */
+    const askVisible = async (p) => p.evaluate(() => getComputedStyle(document.getElementById("review-ask")).display !== "none");
+    const openPopup = async () => {
+      const p = await context.newPage();
+      await p.goto(`chrome-extension://${extId}/popup/popup.html`, { waitUntil: "load" });
+      await p.waitForTimeout(600);
+      return p;
+    };
+    await setLicense(worker, TRIAL_LICENSE);
+    await worker.evaluate(() => chrome.storage.local.remove("phishclean_review_ask"));
+    await setStats(0);
+    page = await openPopup();
+    ok("Rating ask: hidden before anything is blocked", !(await askVisible(page)));
+    await page.close();
+
+    await setStats(3);
+    page = await openPopup();
+    ok("Rating ask: shown after a block", await askVisible(page));
+    ok("Rating ask: says what was blocked", /blocked 3 threats/.test(await page.textContent("#review-ask-text")), await page.textContent("#review-ask-text"));
+    await page.click("#btn-review-later");
+    ok("Rating ask: Not now hides it", !(await askVisible(page)));
+    const askState = await worker.evaluate(() => chrome.storage.local.get("phishclean_review_ask").then((d) => d.phishclean_review_ask));
+    ok("Rating ask: dismissal remembered", askState?.outcome === "dismissed", JSON.stringify(askState));
+    await page.close();
+    page = await openPopup();
+    ok("Rating ask: not shown again", !(await askVisible(page)));
+    await page.close();
+
+    // ── Test 15 — First-day summary (the drop-off is in days 1 to 3) ──
+    console.log("\n── Test 15: First-day summary notification ──");
+    const firstDayAlarm = await worker.evaluate(() => chrome.alarms.get("first-day-summary"));
+    ok("First day: summary alarm set at install", !!firstDayAlarm, JSON.stringify(firstDayAlarm));
+    if (firstDayAlarm) {
+      const hours = (firstDayAlarm.scheduledTime - Date.now()) / 3600000;
+      ok("First day: due about 30 hours after install", hours > 28 && hours <= 30.1, hours.toFixed(2));
+    }
+    await clearActivity(worker);
+    await worker.evaluate(() => chrome.notifications.clear("first-day-summary"));
+    await worker.evaluate(() => sendFirstDaySummary());
+    let shown = await worker.evaluate(() => new Promise((r) => chrome.notifications.getAll(r)));
+    ok("First day: nothing sent when no pages were checked", !shown["first-day-summary"]);
+    await worker.evaluate(() => chrome.storage.local.set({ phishclean_activity: { [(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })()]: { pages: 214, threats: 0 } } }));
+    await worker.evaluate(() => sendFirstDaySummary());
+    await new Promise((r) => setTimeout(r, 300));
+    shown = await worker.evaluate(() => new Promise((r) => chrome.notifications.getAll(r)));
+    ok("First day: summary sent once pages were checked", !!shown["first-day-summary"], JSON.stringify(shown));
+
+    await worker.evaluate(() => chrome.storage.local.remove("phishclean_review_ask"));
+    await setLicense(worker, { ...TRIAL_LICENSE, managed: true });
+    page = await openPopup();
+    ok("Rating ask: never on a managed (Team) install", !(await askVisible(page)));
+    await page.close();
+
   } finally {
     await context.close();
     server.close();

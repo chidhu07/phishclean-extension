@@ -62,11 +62,14 @@ copy_files() {
   done
 }
 
+# Windows has the py launcher, Linux (CI) has python3.
+PYTHON="$(command -v py || command -v python3 || command -v python)"
+
 validate_package() {
   local dest="$1"
   local manifest="$dest/manifest.json"
 
-  py -c "
+  "$PYTHON" -c "
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
@@ -103,7 +106,7 @@ make_zip() {
     local abs_src abs_zip
     abs_src=$(cd "$src_dir" && pwd)
     abs_zip=$(cd "$(dirname "$zip_path")" && pwd)/$(basename "$zip_path")
-    py -c "
+    "$PYTHON" -c "
 import zipfile, os, sys
 src = sys.argv[1].replace('\\\\', '/')
 out = sys.argv[2].replace('\\\\', '/')

@@ -154,11 +154,11 @@ function renderPlan(license) {
   }
   if (license?.trial_active) {
     const days = Math.max(0, Number(license.days_remaining || 0));
-    text.textContent = `Your free trial has ${plural(days, "day", "days")} left, with all 27 checks on. ` +
+    text.textContent = `Your free trial has ${plural(days, "day", "days")} left, with all 29 checks on. ` +
       "When it ends, reported-phishing blocking, fake CAPTCHA and fake interview warnings, link safety and password-field checks keep running, and the other 22 pause.";
-    cta.textContent = "Keep all 27 checks on";
+    cta.textContent = "Keep all 29 checks on";
   } else {
-    text.textContent = "5 of 27 checks are running: reported-phishing blocking, fake CAPTCHA and fake interview warnings, link safety and password fields. " +
+    text.textContent = "5 of 29 checks are running: reported-phishing blocking, fake CAPTCHA and fake interview warnings, link safety and password fields. " +
       "The other 22 are paused, including lookalike domains, fake shops, fake virus warnings, leaked passwords, regional scam pages and HTTPS downgrades.";
     cta.textContent = "Turn the other 22 back on";
   }
