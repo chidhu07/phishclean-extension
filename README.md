@@ -1,5 +1,7 @@
 # PhishClean — extension source
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/chidhu07/phishclean-extension/badge)](https://scorecard.dev/viewer/?uri=github.com/chidhu07/phishclean-extension) [![Tests](https://github.com/chidhu07/phishclean-extension/actions/workflows/test.yml/badge.svg)](https://github.com/chidhu07/phishclean-extension/actions/workflows/test.yml)
+
 This is the source of the [PhishClean](https://www.phishclean.com) browser extension, published so that the privacy claims on the website can be checked rather than trusted. It is version 1.11.0. [Which store build this matches](#which-store-build-this-is) is set out below.
 
 PhishClean runs 29 phishing, scam and leak checks locally in the browser, 5 of them free. The claim is: **nothing about the pages you visit is sent to PhishClean unless you choose to report a wrong warning.** That report sends the site's domain and only goes after you press Send. One paid feature does ask a third party about the page you are on: the coding-test repo check asks the code host about the repository you opened. It is in the table below with everything else.
